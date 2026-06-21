@@ -1,112 +1,212 @@
 // Gọi cấu hình database và các model bảng dữ liệu để tương tác với MySQL
-const db = require('../config/db');
+const db = require("../config/db");
 
 // Gọi toán tử Op của Sequelize để dùng cho các câu lệnh điều kiện phức tạp (như so sánh ngày tháng)
-const { Op } = require('sequelize');
+const { Op } = require("sequelize");
+
+const xl = require("excel4node");
 
 // =========================================================================
-// FUNCTION 1: LẤY DANH SÁCH BÌNH LUẬN (Đáp ứng yêu cầu: Quản lý danh sách bình luận)
+// FUNCTION 1 (ĐÃ NÂNG CẤP): LẤY DANH SÁCH CÓ HỖ TRỢ BỘ LỌC TỪ FLUTTER
 // =========================================================================
 exports.layDanhSachBinhLuan = async (req, res) => {
-    try {
-        // Lấy toàn bộ danh sách bình luận từ database, sắp xếp câu mới nhất lên đầu tiên
-        const danhSach = await db.BinhLuan.findAll({
-            order: [['ngay_tao', 'DESC']] // DESC nghĩa là giảm dần (mới nhất lên trước)
-        });
+  try {
+    // Hứng 3 biến bộ lọc từ App gửi lên (nếu có)
+    const { nhan_cam_xuc, sao, tim_kiem } = req.query;
+    const dieuKienWhere = {};
 
-        // Trả dữ liệu mảng về cho Flutter hiển thị lên màn hình danh sách của Admin
-        return res.status(200).json({
-            success: true,
-            message: 'Tải danh sách bình luận thành công!',
-            data: danhSach
-        });
-    } catch (error) {
-        console.error("❌ Lỗi lấy danh sách bình luận:", error);
-        return res.status(500).json({ success: false, message: 'Lỗi máy chủ không thể lấy danh sách!' });
+    // 1. Nếu Flutter gửi: ?nhan_cam_xuc=TICH_CUC
+    if (
+      nhan_cam_xuc &&
+      ["TICH_CUC", "TIEU_CUC", "CHUA_PHAN_LOAI"].includes(
+        nhan_cam_xuc.toUpperCase(),
+      )
+    ) {
+      dieuKienWhere.nhan_cam_xuc = nhan_cam_xuc.toUpperCase();
     }
+
+    // 2. Nếu Flutter gửi: ?sao=5
+    if (sao && !isNaN(sao)) {
+      dieuKienWhere.danh_gia_sao = parseInt(sao);
+    }
+
+    // 3. Nếu Flutter gửi ô tìm kiếm: ?tim_kiem=màn hình
+    if (tim_kiem && tim_kiem.trim() !== "") {
+      dieuKienWhere.noi_dung = { [Op.like]: `%${tim_kiem.trim()}%` };
+    }
+
+    const danhSach = await db.BinhLuan.findAll({
+      where: dieuKienWhere,
+      order: [["ngay_tao", "DESC"]],
+    });
+
+    return res.status(200).json({
+      success: true,
+      tong_so_loc_duoc: danhSach.length,
+      data: danhSach,
+    });
+  } catch (error) {
+    console.error("❌ Lỗi lấy danh sách Admin:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Lỗi tải danh sách!" });
+  }
 };
 
 // =========================================================================
-// FUNCTION 2: THỐNG KÊ THEO THỜI GIAN (Đáp ứng yêu cầu: Thống kê theo thời gian ngày, tuần, tháng)
-// Lấy số lượng Tích cực / Tiêu cực / Trung lập được gom nhóm theo từng ngày trong 7 ngày gần nhất
+// FUNCTION 2 (ĐÃ NÂNG CẤP): THỐNG KÊ BIỂU ĐỒ LINH HOẠT THEO THỜI GIAN
 // =========================================================================
 exports.thongKeTheoThoiGian = async (req, res) => {
-    try {
-        // Tính mốc thời gian 7 ngày trước kể từ thời điểm hiện tại
-        const bayNgayTruoc = new Date();
-        bayNgayTruoc.setDate(bayNgayTruoc.getDate() - 7);
+  try {
+    const { loc_theo } = req.query; // Hứng biến từ Flutter: '7_ngay', '30_ngay', 'thang_nay', 'nam_nay'
+    let mocBatDau = new Date();
+    mocBatDau.setHours(0, 0, 0, 0); // Đưa về 00:00:00 của ngày được chọn
 
-        // Truy vấn nâng cao: Gom nhóm dữ liệu theo ngày để làm nguyên liệu vẽ biểu đồ đường (Line Chart)
-        const thongKeNgay = await db.BinhLuan.findAll({
-            attributes: [
-                // Hàm cắt lấy phần Ngày tháng năm (bỏ phần giờ phút giây) của MySQL và đặt tên đại diện là 'ngay'
-                [db.sequelize.fn('DATE', db.sequelize.col('ngay_tao')), 'ngay'],
-                // Hàm đếm tổng số bình luận của ngày đó và đặt tên đại diện là 'tong_so'
-                [db.sequelize.fn('COUNT', db.sequelize.col('id')), 'tong_so'],
-                // Đếm xem trong ngày đó có bao nhiêu câu TICH_CUC
-                [db.sequelize.fn('SUM', db.sequelize.literal("CASE WHEN nhan_cam_xuc = 'TICH_CUC' THEN 1 ELSE 0 END")), 'tich_cuc'],
-                // Đếm xem trong ngày đó có bao nhiêu câu TIEU_CUC
-                [db.sequelize.fn('SUM', db.sequelize.literal("CASE WHEN nhan_cam_xuc = 'TIEU_CUC' THEN 1 ELSE 0 END")), 'tieu_cuc'],
-                // Đếm xem trong ngày đó có bao nhiêu câu TRUNG_LAP
-                [db.sequelize.fn('SUM', db.sequelize.literal("CASE WHEN nhan_cam_xuc = 'CHUA_PHAN_LOAI' THEN 1 ELSE 0 END")), 'trung_lap']
-            ],
-            where: {
-                // Điều kiện lọc: Chỉ lấy dữ liệu từ mốc 7 ngày trước đến nay
-                ngay_tao: { [Op.gte]: bayNgayTruoc }
-            },
-            group: [db.sequelize.fn('DATE', db.sequelize.col('ngay_tao'))], // Gom nhóm theo ngày
-            order: [[db.sequelize.fn('DATE', db.sequelize.col('ngay_tao')), 'ASC']] // Sắp xếp từ ngày cũ đến ngày mới để vẽ biểu đồ từ trái qua phải
-        });
-
-        return res.status(200).json({
-            success: true,
-            message: 'Lấy dữ liệu thống kê theo thời gian thành công!',
-            data: thongKeNgay
-        });
-    } catch (error) {
-        console.error("❌ Lỗi thống kê theo thời gian:", error);
-        return res.status(500).json({ success: false, message: 'Lỗi server không thể tổng hợp báo cáo ngày!' });
+    if (loc_theo === "30_ngay") {
+      mocBatDau.setDate(mocBatDau.getDate() - 30);
+    } else if (loc_theo === "thang_nay") {
+      mocBatDau = new Date(mocBatDau.getFullYear(), mocBatDau.getMonth(), 1); // Mùng 1 tháng này
+    } else if (loc_theo === "nam_nay") {
+      mocBatDau = new Date(mocBatDau.getFullYear(), 0, 1); // Mùng 1 tháng 1 đầu năm
+    } else {
+      mocBatDau.setDate(mocBatDau.getDate() - 7); // Mặc định là 7 ngày
     }
+
+    const thongKe = await db.BinhLuan.findAll({
+      attributes: [
+        [db.sequelize.fn("DATE", db.sequelize.col("ngay_tao")), "ngay"],
+        [db.sequelize.fn("COUNT", db.sequelize.col("id")), "tong_so"],
+        [
+          db.sequelize.fn(
+            "SUM",
+            db.sequelize.literal(
+              "CASE WHEN nhan_cam_xuc = 'TICH_CUC' THEN 1 ELSE 0 END",
+            ),
+          ),
+          "tich_cuc",
+        ],
+        [
+          db.sequelize.fn(
+            "SUM",
+            db.sequelize.literal(
+              "CASE WHEN nhan_cam_xuc = 'TIEU_CUC' THEN 1 ELSE 0 END",
+            ),
+          ),
+          "tieu_cuc",
+        ],
+      ],
+      where: { ngay_tao: { [Op.gte]: mocBatDau } },
+      group: [db.sequelize.fn("DATE", db.sequelize.col("ngay_tao"))],
+      order: [[db.sequelize.fn("DATE", db.sequelize.col("ngay_tao")), "ASC"]],
+    });
+
+    return res.status(200).json({
+      success: true,
+      khung_thoi_gian: loc_theo || "7_ngay",
+      data: thongKe,
+    });
+  } catch (error) {
+    console.error("❌ Lỗi thống kê thời gian:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Lỗi truy vấn thời gian" });
+  }
 };
 
 // =========================================================================
-// FUNCTION 3: XUẤT DỮ LIỆU BÁO CÁO CSV (Đáp ứng yêu cầu: Xuất dữ liệu báo cáo)
-// Hệ thống sẽ tự động tổng hợp MySQL thành một chuỗi dữ liệu CSV chuẩn để Admin tải về mở thẳng bằng Excel
+// FUNCTION 3 (ĐÃ NÂNG CẤP LÊN ĐỈNH CAO): XUẤT FILE EXCEL (.XLSX) CÓ TÔ MÀU
 // =========================================================================
 exports.xuatBaoCaoCSV = async (req, res) => {
-    try {
-        // Lấy tất cả bình luận trong database ra để xuất file
-        const tatCaBinhLuan = await db.BinhLuan.findAll({ order: [['ngay_tao', 'DESC']] });
+  // Vẫn giữ tên hàm cũ để file routes/api.js không bị lỗi
+  try {
+    const tatCa = await db.BinhLuan.findAll({ order: [["ngay_tao", "DESC"]] });
 
-        // Tạo phần tiêu đề cột cho file Excel (phân cách nhau bằng dấu phẩy)
-        let csvContent = "Mã ID,Nội dung bình luận,Nhãn cảm xúc,Độ tin cậy,Ngày tạo\n";
+    // 1. Khởi tạo một Workbook (File Excel)
+    const wb = new xl.Workbook();
+    const ws = wb.addWorksheet("Báo cáo Cảm xúc AI");
 
-        // Vòng lặp duyệt qua từng dòng dữ liệu để nối chuỗi thành các hàng trong file
-        tatCaBinhLuan.forEach((item) => {
-            // Xử lý chuỗi nội dung bình luận: Xóa các dấu xuống dòng lỡ có để tránh làm lệch hàng Excel
-            const noiDungSach = item.noi_dung.replace(/\n/g, " ").replace(/,/g, " ");
-            
-            // Định dạng tỷ lệ phần trăm hiển thị
-            const doTinCayPhanTram = item.do_tin_cay ? `${(item.do_tin_cay * 100).toFixed(2)}%` : '0%';
+    // 2. Định nghĩa các "Cọ sơn" (Styles)
+    const styleTieuDe = wb.createStyle({
+      font: { bold: true, color: "#FFFFFF", size: 12 },
+      fill: { type: "pattern", patternType: "solid", fgColor: "#1F4E78" }, // Xanh Navy bệ vệ
+      alignment: { horizontal: "center", vertical: "center" },
+    });
 
-            // Nối dòng dữ liệu vào chuỗi tổng
-            csvContent += `${item.id},${noiDungSach},${item.nhan_cam_xuc},${doTinCayPhanTram},${item.ngay_tao}\n`;
-        });
+    const styleXanhKhen = wb.createStyle({
+      font: { color: "#27AE60", bold: true },
+    }); // Xanh lá
+    const styleDoChe = wb.createStyle({
+      font: { color: "#C0392B", bold: true },
+    }); // Đỏ gắt
+    const styleBinhThuong = wb.createStyle({ font: { color: "#333333" } });
 
-        // THIẾT LẬP CẤU HÌNH ĐẶC BIỆT ĐỂ DOWNLOAD FILE QUA EXPRSS
-        // 1. Thêm mã hiệu BOM (Byte Order Mark) của UTF-8 để khi Excel mở lên không bị lỗi font chữ Tiếng Việt có dấu
-        const bom = Buffer.from('\uFEFF', 'utf-8');
-        const fileBuffer = Buffer.concat([bom, Buffer.from(csvContent, 'utf-8')]);
+    // 3. Vẽ dòng Tiêu đề cột
+    const headers = [
+      "ID",
+      "Nội dung bình luận",
+      "AI Nhận diện",
+      "Số Sao",
+      "Đánh giá",
+      "Độ tin cậy AI",
+      "Lý do AI chấm",
+      "Ngày bình luận",
+    ];
+    headers.forEach((text, index) => {
+      ws.cell(1, index + 1)
+        .string(text)
+        .style(styleTieuDe);
+    });
+    ws.row(1).setHeight(28); // Kéo lề tiêu đề cao lên cho thoáng
 
-        // 2. Cấu hình Header ép trình duyệt hoặc điện thoại phải tải xuống thành file tên là 'BaoCao_CamXuc_AI.csv'
-        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
-        res.setHeader('Content-Disposition', 'attachment; filename=BaoCao_CamXuc_AI.csv');
+    // 4. Đổ dữ liệu và Tô màu từng ô
+    tatCa.forEach((item, rowIdx) => {
+      const row = rowIdx + 2; // Bắt đầu từ dòng số 2
 
-        // Gửi file về cho người dùng tải xuống
-        return res.status(200).send(fileBuffer);
+      ws.cell(row, 1)
+        .number(item.id)
+        .style({ alignment: { horizontal: "center" } });
+      ws.cell(row, 2).string(item.noi_dung || "");
 
-    } catch (error) {
-        console.error("❌ Lỗi xuất báo cáo dữ liệu:", error);
-        return res.status(500).json({ success: false, message: 'Gặp sự cố khi kết xuất file báo cáo!' });
-    }
+      // Chọn cọ sơn theo cảm xúc
+      let coSonCamXuc = styleBinhThuong;
+      if (item.nhan_cam_xuc === "TICH_CUC") coSonCamXuc = styleXanhKhen;
+      if (item.nhan_cam_xuc === "TIEU_CUC") coSonCamXuc = styleDoChe;
+
+      ws.cell(row, 3)
+        .string(item.nhan_cam_xuc)
+        .style(coSonCamXuc)
+        .style({ alignment: { horizontal: "center" } });
+      ws.cell(row, 4)
+        .number(item.danh_gia_sao || 3)
+        .style({ alignment: { horizontal: "center" } });
+      ws.cell(row, 5).string(item.muc_do_hai_long || "");
+
+      // Ép định dạng phần trăm (Ví dụ: 0.965 -> hiển thị Excel là 96.50%)
+      ws.cell(row, 6)
+        .number(parseFloat(item.do_tin_cay || 0))
+        .style({ numberFormat: "0.00%" });
+
+      // Xử lý an toàn cột lý do mới thêm
+      const lyDoGhiNhan =
+        item.dataValues.ly_do_ai_cham || "Hệ thống tự nhận diện";
+      ws.cell(row, 7).string(lyDoGhiNhan);
+
+      ws.cell(row, 8).string(new Date(item.ngay_tao).toLocaleString("vi-VN"));
+    });
+
+    // 5. Căn chỉnh độ rộng cột tự động cho đẹp
+    ws.column(2).setWidth(45); // Cột nội dung cho rộng nhất
+    ws.column(3).setWidth(16);
+    ws.column(6).setWidth(15);
+    ws.column(7).setWidth(35); // Cột lý do cho rộng thứ nhì
+    ws.column(8).setWidth(20);
+
+    // 6. Gửi thẳng file Excel xịn về trình duyệt / điện thoại
+    wb.write("BaoCao_SentiFlow.xlsx", res);
+  } catch (error) {
+    console.error("❌ Lỗi xuất Excel:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Lỗi tạo file Excel" });
+  }
 };
