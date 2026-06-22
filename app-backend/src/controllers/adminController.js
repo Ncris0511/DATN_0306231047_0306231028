@@ -1,212 +1,287 @@
-// Gọi cấu hình database và các model bảng dữ liệu để tương tác với MySQL
 const db = require("../config/db");
-
-// Gọi toán tử Op của Sequelize để dùng cho các câu lệnh điều kiện phức tạp (như so sánh ngày tháng)
-const { Op } = require("sequelize");
-
 const xl = require("excel4node");
 
-// =========================================================================
-// FUNCTION 1 (ĐÃ NÂNG CẤP): LẤY DANH SÁCH CÓ HỖ TRỢ BỘ LỌC TỪ FLUTTER
-// =========================================================================
+// 1. ĐĂNG NHẬP ADMIN
+exports.loginAdmin = async (req, res) => {
+  try {
+    const { ten_dang_nhap, mat_khau } = req.body;
+
+    if (!ten_dang_nhap || !mat_khau) {
+      return res
+        .status(400)
+        .json({
+          success: false,
+          message: "Vui lòng nhập tài khoản và mật khẩu!",
+        });
+    }
+
+    const [users] = await db.sequelize.query(
+      `SELECT id, ten_dang_nhap, ho_ten, vai_tro FROM tai_khoan 
+             WHERE ten_dang_nhap = :ten_dang_nhap AND mat_khau = :mat_khau AND vai_tro = 'quan_tri' LIMIT 1`,
+      { replacements: { ten_dang_nhap, mat_khau } },
+    );
+
+    if (users.length === 0) {
+      return res
+        .status(401)
+        .json({
+          success: false,
+          message: "Tài khoản hoặc mật khẩu Admin không đúng!",
+        });
+    }
+
+    const admin = users[0];
+    return res.status(200).json({
+      success: true,
+      message: "Đăng nhập Quản trị viên thành công!",
+      data: {
+        id: admin.id,
+        ten_dang_nhap: admin.ten_dang_nhap,
+        ho_ten: admin.ho_ten, // Lấy đúng "Trần Quản Trị" từ DB
+        vai_tro: admin.vai_tro,
+      },
+    });
+  } catch (error) {
+    console.error("❌ Lỗi Login Admin:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Lỗi xác thực máy chủ" });
+  }
+};
+
+// 2. THỐNG KÊ THỜI GIAN LINH HOẠT (Bypass 100% ONLY_FULL_GROUP_BY bằng JS Mapping)
+exports.thongKeThoiGian = async (req, res) => {
+  try {
+    const { loc_theo } = req.query;
+    const boLoc = [
+      "hom_nay",
+      "7_ngay",
+      "thang_nay",
+      "nam_nay",
+      "tat_ca",
+    ].includes(loc_theo)
+      ? loc_theo
+      : "7_ngay";
+
+    let sql = "";
+
+    // Tầng 1: SQL thuần gom số liệu thô chuẩn Strict Mode
+    if (boLoc === "hom_nay") {
+      sql = `
+                SELECT 
+                    HOUR(ngay_tao) AS raw_unit,
+                    COUNT(*) AS tong_so,
+                    SUM(CASE WHEN nhan_cam_xuc = 'TICH_CUC' THEN 1 ELSE 0 END) AS tich_cuc,
+                    SUM(CASE WHEN nhan_cam_xuc = 'TIEU_CUC' THEN 1 ELSE 0 END) AS tieu_cuc
+                FROM binh_luan
+                WHERE DATE(ngay_tao) = DATE(NOW())
+                GROUP BY HOUR(ngay_tao)
+                ORDER BY HOUR(ngay_tao) ASC;
+            `;
+    } else if (boLoc === "7_ngay") {
+      sql = `
+                SELECT 
+                    DATE_FORMAT(ngay_tao, '%Y-%m-%d') AS raw_unit,
+                    COUNT(*) AS tong_so,
+                    SUM(CASE WHEN nhan_cam_xuc = 'TICH_CUC' THEN 1 ELSE 0 END) AS tich_cuc,
+                    SUM(CASE WHEN nhan_cam_xuc = 'TIEU_CUC' THEN 1 ELSE 0 END) AS tieu_cuc
+                FROM binh_luan
+                WHERE ngay_tao >= DATE_SUB(DATE(NOW()), INTERVAL 7 DAY)
+                GROUP BY DATE_FORMAT(ngay_tao, '%Y-%m-%d')
+                ORDER BY DATE_FORMAT(ngay_tao, '%Y-%m-%d') ASC;
+            `;
+    } else if (boLoc === "thang_nay") {
+      sql = `
+                SELECT 
+                    DATE_FORMAT(ngay_tao, '%Y-%m-%d') AS raw_unit,
+                    COUNT(*) AS tong_so,
+                    SUM(CASE WHEN nhan_cam_xuc = 'TICH_CUC' THEN 1 ELSE 0 END) AS tich_cuc,
+                    SUM(CASE WHEN nhan_cam_xuc = 'TIEU_CUC' THEN 1 ELSE 0 END) AS tieu_cuc
+                FROM binh_luan
+                WHERE YEAR(ngay_tao) = YEAR(NOW()) AND MONTH(ngay_tao) = MONTH(NOW())
+                GROUP BY DATE_FORMAT(ngay_tao, '%Y-%m-%d')
+                ORDER BY DATE_FORMAT(ngay_tao, '%Y-%m-%d') ASC;
+            `;
+    } else if (boLoc === "nam_nay") {
+      sql = `
+                SELECT 
+                    MONTH(ngay_tao) AS raw_unit,
+                    COUNT(*) AS tong_so,
+                    SUM(CASE WHEN nhan_cam_xuc = 'TICH_CUC' THEN 1 ELSE 0 END) AS tich_cuc,
+                    SUM(CASE WHEN nhan_cam_xuc = 'TIEU_CUC' THEN 1 ELSE 0 END) AS tieu_cuc
+                FROM binh_luan
+                WHERE YEAR(ngay_tao) = YEAR(NOW())
+                GROUP BY MONTH(ngay_tao)
+                ORDER BY MONTH(ngay_tao) ASC;
+            `;
+    } else if (boLoc === "tat_ca") {
+      sql = `
+                SELECT 
+                    DATE_FORMAT(ngay_tao, '%Y-%m') AS raw_unit,
+                    COUNT(*) AS tong_so,
+                    SUM(CASE WHEN nhan_cam_xuc = 'TICH_CUC' THEN 1 ELSE 0 END) AS tich_cuc,
+                    SUM(CASE WHEN nhan_cam_xuc = 'TIEU_CUC' THEN 1 ELSE 0 END) AS tieu_cuc
+                FROM binh_luan
+                GROUP BY DATE_FORMAT(ngay_tao, '%Y-%m')
+                ORDER BY DATE_FORMAT(ngay_tao, '%Y-%m') ASC;
+            `;
+    }
+
+    const [rows] = await db.sequelize.query(sql);
+
+    // Tầng 2: Node.js xử lý "trang điểm" nhãn mox cho Flutter vẽ biểu đồ fl_chart
+    const cleanData = rows.map((item) => {
+      let moxLabel = "";
+      if (boLoc === "hom_nay") {
+        moxLabel = String(item.raw_unit).padStart(2, "0") + ":00";
+      } else if (boLoc === "7_ngay" || boLoc === "thang_nay") {
+        const parts = item.raw_unit.split("-");
+        moxLabel = `${parts[2]}/${parts[1]}`;
+      } else if (boLoc === "nam_nay") {
+        moxLabel = `Tháng ${item.raw_unit}`;
+      } else if (boLoc === "tat_ca") {
+        const parts = item.raw_unit.split("-");
+        moxLabel = `${parts[1]}/${parts[0]}`;
+      }
+
+      return {
+        mox: moxLabel,
+        tong_so: parseInt(item.tong_so) || 0,
+        tich_cuc: parseInt(item.tich_cuc) || 0,
+        tieu_cuc: parseInt(item.tieu_cuc) || 0,
+      };
+    });
+
+    return res
+      .status(200)
+      .json({ success: true, khung_thoi_gian: boLoc, data: cleanData });
+  } catch (error) {
+    console.error("❌ Lỗi Thống kê linh hoạt:", error);
+    return res
+      .status(500)
+      .json({ success: false, message: "Lỗi máy chủ kết xuất biểu đồ" });
+  }
+};
+
+// 3. LỌC DANH SÁCH BÌNH LUẬN CHO ADMIN
 exports.layDanhSachBinhLuan = async (req, res) => {
   try {
-    // Hứng 3 biến bộ lọc từ App gửi lên (nếu có)
-    const { nhan_cam_xuc, sao, tim_kiem } = req.query;
-    const dieuKienWhere = {};
+    const { nhan_cam_xuc, tim_kiem } = req.query;
+    let querySql = `SELECT * FROM binh_luan WHERE 1=1`;
+    let replacements = {};
 
-    // 1. Nếu Flutter gửi: ?nhan_cam_xuc=TICH_CUC
-    if (
-      nhan_cam_xuc &&
-      ["TICH_CUC", "TIEU_CUC", "CHUA_PHAN_LOAI"].includes(
-        nhan_cam_xuc.toUpperCase(),
-      )
-    ) {
-      dieuKienWhere.nhan_cam_xuc = nhan_cam_xuc.toUpperCase();
+    if (nhan_cam_xuc) {
+      querySql += ` AND nhan_cam_xuc = :nhan_cam_xuc`;
+      replacements.nhan_cam_xuc = nhan_cam_xuc;
     }
-
-    // 2. Nếu Flutter gửi: ?sao=5
-    if (sao && !isNaN(sao)) {
-      dieuKienWhere.danh_gia_sao = parseInt(sao);
+    if (tim_kiem) {
+      querySql += ` AND noi_dung LIKE :tim_kiem`;
+      replacements.tim_kiem = `%${tim_kiem}%`;
     }
+    querySql += ` ORDER BY ngay_tao DESC`;
 
-    // 3. Nếu Flutter gửi ô tìm kiếm: ?tim_kiem=màn hình
-    if (tim_kiem && tim_kiem.trim() !== "") {
-      dieuKienWhere.noi_dung = { [Op.like]: `%${tim_kiem.trim()}%` };
-    }
-
-    const danhSach = await db.BinhLuan.findAll({
-      where: dieuKienWhere,
-      order: [["ngay_tao", "DESC"]],
-    });
-
-    return res.status(200).json({
-      success: true,
-      tong_so_loc_duoc: danhSach.length,
-      data: danhSach,
-    });
-  } catch (error) {
-    console.error("❌ Lỗi lấy danh sách Admin:", error);
+    const [rows] = await db.sequelize.query(querySql, { replacements });
+    return res
+      .status(200)
+      .json({ success: true, tong_so_loc_duoc: rows.length, data: rows });
+  } catch (e) {
     return res
       .status(500)
-      .json({ success: false, message: "Lỗi tải danh sách!" });
+      .json({ success: false, message: "Lỗi lấy danh sách" });
   }
 };
 
-// =========================================================================
-// FUNCTION 2 (ĐÃ NÂNG CẤP): THỐNG KÊ BIỂU ĐỒ LINH HOẠT THEO THỜI GIAN
-// =========================================================================
-exports.thongKeTheoThoiGian = async (req, res) => {
+// 4. KẾT XUẤT BÁO CÁO EXCEL (.xlsx) - IN NGUYÊN VĂN LÝ DO AI CHẤM
+exports.xuatBaoCao = async (req, res) => {
   try {
-    const { loc_theo } = req.query; // Hứng biến từ Flutter: '7_ngay', '30_ngay', 'thang_nay', 'nam_nay'
-    let mocBatDau = new Date();
-    mocBatDau.setHours(0, 0, 0, 0); // Đưa về 00:00:00 của ngày được chọn
+    const [rows] = await db.sequelize.query(
+      `SELECT * FROM binh_luan ORDER BY ngay_tao DESC`,
+    );
 
-    if (loc_theo === "30_ngay") {
-      mocBatDau.setDate(mocBatDau.getDate() - 30);
-    } else if (loc_theo === "thang_nay") {
-      mocBatDau = new Date(mocBatDau.getFullYear(), mocBatDau.getMonth(), 1); // Mùng 1 tháng này
-    } else if (loc_theo === "nam_nay") {
-      mocBatDau = new Date(mocBatDau.getFullYear(), 0, 1); // Mùng 1 tháng 1 đầu năm
-    } else {
-      mocBatDau.setDate(mocBatDau.getDate() - 7); // Mặc định là 7 ngày
-    }
-
-    const thongKe = await db.BinhLuan.findAll({
-      attributes: [
-        [db.sequelize.fn("DATE", db.sequelize.col("ngay_tao")), "ngay"],
-        [db.sequelize.fn("COUNT", db.sequelize.col("id")), "tong_so"],
-        [
-          db.sequelize.fn(
-            "SUM",
-            db.sequelize.literal(
-              "CASE WHEN nhan_cam_xuc = 'TICH_CUC' THEN 1 ELSE 0 END",
-            ),
-          ),
-          "tich_cuc",
-        ],
-        [
-          db.sequelize.fn(
-            "SUM",
-            db.sequelize.literal(
-              "CASE WHEN nhan_cam_xuc = 'TIEU_CUC' THEN 1 ELSE 0 END",
-            ),
-          ),
-          "tieu_cuc",
-        ],
-      ],
-      where: { ngay_tao: { [Op.gte]: mocBatDau } },
-      group: [db.sequelize.fn("DATE", db.sequelize.col("ngay_tao"))],
-      order: [[db.sequelize.fn("DATE", db.sequelize.col("ngay_tao")), "ASC"]],
-    });
-
-    return res.status(200).json({
-      success: true,
-      khung_thoi_gian: loc_theo || "7_ngay",
-      data: thongKe,
-    });
-  } catch (error) {
-    console.error("❌ Lỗi thống kê thời gian:", error);
-    return res
-      .status(500)
-      .json({ success: false, message: "Lỗi truy vấn thời gian" });
-  }
-};
-
-// =========================================================================
-// FUNCTION 3 (ĐÃ NÂNG CẤP LÊN ĐỈNH CAO): XUẤT FILE EXCEL (.XLSX) CÓ TÔ MÀU
-// =========================================================================
-exports.xuatBaoCaoCSV = async (req, res) => {
-  // Vẫn giữ tên hàm cũ để file routes/api.js không bị lỗi
-  try {
-    const tatCa = await db.BinhLuan.findAll({ order: [["ngay_tao", "DESC"]] });
-
-    // 1. Khởi tạo một Workbook (File Excel)
     const wb = new xl.Workbook();
     const ws = wb.addWorksheet("Báo cáo Cảm xúc AI");
 
-    // 2. Định nghĩa các "Cọ sơn" (Styles)
-    const styleTieuDe = wb.createStyle({
-      font: { bold: true, color: "#FFFFFF", size: 12 },
-      fill: { type: "pattern", patternType: "solid", fgColor: "#1F4E78" }, // Xanh Navy bệ vệ
+    const headerStyle = wb.createStyle({
+      font: { color: "#FFFFFF", bold: true, size: 12 },
+      fill: {
+        type: "pattern",
+        patternType: "solid",
+        bgColor: "#1B365D",
+        fgColor: "#1B365D",
+      },
       alignment: { horizontal: "center", vertical: "center" },
     });
 
-    const styleXanhKhen = wb.createStyle({
-      font: { color: "#27AE60", bold: true },
-    }); // Xanh lá
-    const styleDoChe = wb.createStyle({
-      font: { color: "#C0392B", bold: true },
-    }); // Đỏ gắt
-    const styleBinhThuong = wb.createStyle({ font: { color: "#333333" } });
+    const styleTichCuc = wb.createStyle({
+      font: { color: "#2E7D32", bold: true },
+    });
+    const styleTieuCuc = wb.createStyle({
+      font: { color: "#C62828", bold: true },
+    });
+    const styleTrungLap = wb.createStyle({
+      font: { color: "#EF6C00", bold: true },
+    });
+    const styleNormal = wb.createStyle({ font: { size: 11 } });
 
-    // 3. Vẽ dòng Tiêu đề cột
     const headers = [
       "ID",
       "Nội dung bình luận",
       "AI Nhận diện",
       "Số Sao",
-      "Đánh giá",
+      "Mức độ hài lòng",
       "Độ tin cậy AI",
       "Lý do AI chấm",
       "Ngày bình luận",
     ];
-    headers.forEach((text, index) => {
-      ws.cell(1, index + 1)
-        .string(text)
-        .style(styleTieuDe);
-    });
-    ws.row(1).setHeight(28); // Kéo lề tiêu đề cao lên cho thoáng
+    headers.forEach((h, idx) =>
+      ws
+        .cell(1, idx + 1)
+        .string(h)
+        .style(headerStyle),
+    );
+    ws.row(1).setHeight(30);
 
-    // 4. Đổ dữ liệu và Tô màu từng ô
-    tatCa.forEach((item, rowIdx) => {
-      const row = rowIdx + 2; // Bắt đầu từ dòng số 2
+    rows.forEach((item, index) => {
+      const r = index + 2;
+      ws.cell(r, 1).number(item.id).style(styleNormal);
+      ws.cell(r, 2)
+        .string(item.noi_dung || "")
+        .style(styleNormal);
 
-      ws.cell(row, 1)
-        .number(item.id)
-        .style({ alignment: { horizontal: "center" } });
-      ws.cell(row, 2).string(item.noi_dung || "");
+      let cellNhan = ws.cell(r, 3).string(item.nhan_cam_xuc || "");
+      if (item.nhan_cam_xuc === "TICH_CUC") cellNhan.style(styleTichCuc);
+      else if (item.nhan_cam_xuc === "TIEU_CUC") cellNhan.style(styleTieuCuc);
+      else cellNhan.style(styleTrungLap);
 
-      // Chọn cọ sơn theo cảm xúc
-      let coSonCamXuc = styleBinhThuong;
-      if (item.nhan_cam_xuc === "TICH_CUC") coSonCamXuc = styleXanhKhen;
-      if (item.nhan_cam_xuc === "TIEU_CUC") coSonCamXuc = styleDoChe;
-
-      ws.cell(row, 3)
-        .string(item.nhan_cam_xuc)
-        .style(coSonCamXuc)
-        .style({ alignment: { horizontal: "center" } });
-      ws.cell(row, 4)
+      ws.cell(r, 4)
         .number(item.danh_gia_sao || 3)
-        .style({ alignment: { horizontal: "center" } });
-      ws.cell(row, 5).string(item.muc_do_hai_long || "");
+        .style(styleNormal);
+      ws.cell(r, 5)
+        .string(item.muc_do_hai_long || "")
+        .style(styleNormal);
+      ws.cell(r, 6)
+        .number(parseFloat(item.do_tin_cay) || 0)
+        .style(styleNormal);
 
-      // Ép định dạng phần trăm (Ví dụ: 0.965 -> hiển thị Excel là 96.50%)
-      ws.cell(row, 6)
-        .number(parseFloat(item.do_tin_cay || 0))
-        .style({ numberFormat: "0.00%" });
+      // In nguyên văn lập luận XAI từ DB ra Excel:
+      ws.cell(r, 7)
+        .string(item.ly_do_ai_cham || "Hệ thống tự động ghi nhận")
+        .style(styleNormal);
 
-      // Xử lý an toàn cột lý do mới thêm
-      const lyDoGhiNhan =
-        item.dataValues.ly_do_ai_cham || "Hệ thống tự nhận diện";
-      ws.cell(row, 7).string(lyDoGhiNhan);
-
-      ws.cell(row, 8).string(new Date(item.ngay_tao).toLocaleString("vi-VN"));
+      const d = new Date(item.ngay_tao);
+      const dateStr = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")} ${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`;
+      ws.cell(r, 8).string(dateStr).style(styleNormal);
     });
 
-    // 5. Căn chỉnh độ rộng cột tự động cho đẹp
-    ws.column(2).setWidth(45); // Cột nội dung cho rộng nhất
-    ws.column(3).setWidth(16);
-    ws.column(6).setWidth(15);
-    ws.column(7).setWidth(35); // Cột lý do cho rộng thứ nhì
-    ws.column(8).setWidth(20);
+    ws.column(2).setWidth(45);
+    ws.column(7).setWidth(55); // Mở rộng cột Lý do lên 55 để hiển thị văn bản dài
+    ws.column(8).setWidth(22);
 
-    // 6. Gửi thẳng file Excel xịn về trình duyệt / điện thoại
     wb.write("BaoCao_SentiFlow.xlsx", res);
   } catch (error) {
     console.error("❌ Lỗi xuất Excel:", error);
     return res
       .status(500)
-      .json({ success: false, message: "Lỗi tạo file Excel" });
+      .json({ success: false, message: "Lỗi kết xuất Excel" });
   }
 };

@@ -6,14 +6,14 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 exports.phanTichBinhLuan = async (req, res) => {
   try {
-    const { noi_dung } = req.body;
+    // Nhận nội dung và cả id_tai_khoan (nếu user có đăng nhập, không thì bằng null)
+    const { noi_dung, id_tai_khoan } = req.body;
     if (!noi_dung)
       return res
         .status(400)
-        .json({ success: false, message: "Vui lòng nhập bình luận!" });
+        .json({ success: false, message: "Vui lòng nhập nội dung bình luận!" });
 
     const startTime = Date.now();
-
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const prompt = `
@@ -23,22 +23,19 @@ exports.phanTichBinhLuan = async (req, res) => {
         {
           "nhan_cam_xuc": "TICH_CUC" hoặc "TIEU_CUC" hoặc "CHUA_PHAN_LOAI",
           "danh_gia_sao": số nguyên từ 1 đến 5,
-          "ly_do_ai_cham": "..."
+          "ly_do_ai_cham": "Lập luận chi tiết giải thích vì sao bạn chấm số sao này dựa trên các từ khóa trong câu"
         }
 
-        QUY TẮC BẮT BUỘC KHI VIẾT 'ly_do_ai_cham' (Phải lập luận chặt chẽ như một biên bản chấm thi):
-        1. PHẢI CÓ BẰNG CHỨNG: Trích dẫn lại đúng từ khóa/cụm từ quyết định trong câu.
-        2. PHẢI GIẢI THÍCH LOGIC CỘNG/TRỪ SAO:
-           - Nếu cho 5 sao: Phải khẳng định câu này "hoàn hảo, không có điểm cấn".
-           - Nếu cho 4, 3, 2 sao: BẮT BUỘC phải giải thích vì sao bị trừ sao (Ví dụ: "Khách khen [A] nhưng vế sau chê [B] nên bị trừ 1 sao", hoặc "Sử dụng từ ngữ ba phải 'tạm được' thể hiện sự miễn cưỡng").
-           - Nếu cho 1 sao: Chỉ ra từ ngữ bộc lộ sự phẫn nộ đỉnh điểm.
-        3. Văn phong: Khách quan, chuyên nghiệp, đi thẳng vào vấn đề.
+        QUY TẮC BẮT BUỘC KHI VIẾT 'ly_do_ai_cham':
+        1. Trích dẫn lại đúng từ khóa/cụm từ quyết định trong câu.
+        2. Giải thích logic cộng/trừ sao khách quan, đi thẳng vào vấn đề.
         `;
 
     let aiOutput = null;
     let soLanThu = 0;
     const maxLanThu = 3;
 
+    // Vòng lặp Auto-Retry kiên trì chống lỗi 503
     while (soLanThu < maxLanThu) {
       try {
         soLanThu++;
@@ -94,12 +91,16 @@ exports.phanTichBinhLuan = async (req, res) => {
           ? 0.885
           : 0.75;
 
+    // LƯU CHÍNH THỨC VÀO MYSQL (Lưu trọn vẹn cả User ID và Lập luận XAI)
     const binhLuan = await db.BinhLuan.create({
+      id_tai_khoan: id_tai_khoan || null,
       noi_dung,
       nhan_cam_xuc: nhanCamXuc,
       danh_gia_sao: danhGiaSao,
       muc_do_hai_long: mucDoHaiLong,
       do_tin_cay: doTinCay,
+      ly_do_ai_cham: aiOutput.ly_do_ai_cham, // Đã lưu xuống CSDL
+      ai_version: "gemini-2.5-flash",
     });
 
     await db.NhatKyAI.create({
@@ -112,11 +113,12 @@ exports.phanTichBinhLuan = async (req, res) => {
       success: true,
       data: {
         id: binhLuan.id,
+        id_tai_khoan: binhLuan.id_tai_khoan,
         noi_dung,
-        nhanCamXuc,
-        danhGiaSao,
-        mucDoHaiLong,
-        doTinCay,
+        nhanCamXuc: nhanCamXuc,
+        danhGiaSao: danhGiaSao,
+        mucDoHaiLong: mucDoHaiLong,
+        doTinCay: doTinCay,
         lyDoCuaAI: aiOutput.ly_do_ai_cham,
         thoiGianMs,
         ai_version: "gemini-2.5-flash",
