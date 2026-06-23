@@ -100,7 +100,7 @@ exports.phanTichBinhLuan = async (req, res) => {
       muc_do_hai_long: mucDoHaiLong,
       do_tin_cay: doTinCay,
       ly_do_ai_cham: aiOutput.ly_do_ai_cham, // Đã lưu xuống CSDL
-      ai_version: "gemini-2.5-flash",
+      ai_version: "gemini-3.5-flash",
     });
 
     await db.NhatKyAI.create({
@@ -121,7 +121,7 @@ exports.phanTichBinhLuan = async (req, res) => {
         doTinCay: doTinCay,
         lyDoCuaAI: aiOutput.ly_do_ai_cham,
         thoiGianMs,
-        ai_version: "gemini-2.5-flash",
+        ai_version: "gemini-3.5-flash",
       },
     });
   } catch (error) {
