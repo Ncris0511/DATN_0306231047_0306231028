@@ -3,15 +3,8 @@ const db = require("../config/db");
 exports.layDashboard = async (req, res) => {
   try {
     const tong = await db.BinhLuan.count();
-    if (tong === 0) {
-      return res.json({
-        success: true,
-        data: {
-          tong_binh_luan: 0,
-          nps: { diem: 0, chan_doan: "Chưa có dữ liệu" },
-        },
-      });
-    }
+    if (tong === 0)
+      return res.json({ success: true, data: { tong_binh_luan: 0 } });
 
     const tichCuc = await db.BinhLuan.count({
       where: { nhan_cam_xuc: "TICH_CUC" },
@@ -23,48 +16,33 @@ exports.layDashboard = async (req, res) => {
       where: { nhan_cam_xuc: "CHUA_PHAN_LOAI" },
     });
 
-    // Phân loại khách hàng theo chuẩn quốc tế Net Promoter Score (NPS)
-    const promoters = await db.BinhLuan.count({ where: { danh_gia_sao: [5] } }); // Fan trung thành
+    const promoters = await db.BinhLuan.count({ where: { danh_gia_sao: [5] } });
     const passives = await db.BinhLuan.count({
       where: { danh_gia_sao: [3, 4] },
-    }); // Khách vãng lai
+    });
     const detractors = await db.BinhLuan.count({
       where: { danh_gia_sao: [1, 2] },
-    }); // Khách bực bội
+    });
 
-    // Công thức NPS = (% Promoters) - (% Detractors)
     const diemNPS = Math.round(((promoters - detractors) / tong) * 100);
 
-    // Chẩn đoán sức khỏe thương hiệu trả về cho Flutter đổi màu
-    let loiChanDoan = "";
-    let maMauHex = "";
+    let loiChanDoan =
+      diemNPS >= 50
+        ? "Xuất sắc: Khách hàng yêu thích!"
+        : diemNPS >= 0
+          ? "Cảnh báo: Dễ rời bỏ."
+          : "Báo động đỏ!";
+    let maMauHex =
+      diemNPS >= 50 ? "0xFF4CAF50" : diemNPS >= 0 ? "0xFFFF9800" : "0xFFF44336";
 
-    if (diemNPS >= 50) {
-      loiChanDoan = "Xuất sắc: Khách hàng cực kỳ yêu thích và trung thành!";
-      maMauHex = "0xFF4CAF50"; // Xanh lá Flutter
-    } else if (diemNPS >= 20) {
-      loiChanDoan = "Khá tốt: Tình hình khả quan, cần phát huy.";
-      maMauHex = "0xFF2196F3"; // Xanh biển
-    } else if (diemNPS >= 0) {
-      loiChanDoan = "Cảnh báo: Khách hàng ở mức tạm chấp nhận, dễ rời bỏ.";
-      maMauHex = "0xFFFF9800"; // Cam
-    } else {
-      loiChanDoan = "BÁO ĐỘNG KHẨN: Khách hàng đang phẫn nộ và quay lưng!";
-      maMauHex = "0xFFF44336"; // Đỏ
-    }
-
-    // Lấy tốc độ phản hồi trung bình của AI
-    const logAI = await db.NhatKyAI.findAll({
+    const logAI = await db.BinhLuan.findAll({
       attributes: [
         [
-          db.sequelize.fn("AVG", db.sequelize.col("thoi_gian_phan_hoi_ms")),
+          db.sequelize.fn("AVG", db.sequelize.col("thoi_gian_xu_ly_ms")),
           "avg_time",
         ],
       ],
     });
-    const thoiGianTB = logAI[0]?.dataValues.avg_time
-      ? Math.round(logAI[0].dataValues.avg_time)
-      : 0;
 
     return res.json({
       success: true,
@@ -79,13 +57,11 @@ exports.layDashboard = async (req, res) => {
           diem: diemNPS,
           chan_doan_suckhoe: loiChanDoan,
           mau_sac_ui: maMauHex,
-          chi_tiet_nhom: { promoters, passives, detractors },
         },
-        thoi_gian_tb_ms: thoiGianTB,
+        thoi_gian_tb_ms: Math.round(logAI[0]?.dataValues.avg_time || 0),
       },
     });
   } catch (error) {
-    console.error("❌ Lỗi thống kê:", error);
     return res.status(500).json({ success: false });
   }
 };

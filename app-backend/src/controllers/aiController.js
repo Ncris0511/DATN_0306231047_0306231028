@@ -4,86 +4,98 @@ const db = require("../config/db");
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+// Hàm đa năng: Tự động cắt mọi tiền tố Base64 của Ảnh, PDF, TXT, CSV...
+function base64ToGenerativePart(base64String, mimeType) {
+  return {
+    inlineData: {
+      data: base64String.replace(/^data:.*?;base64,/, ""), // Regex quét sạch mọi loại tiền tố file
+      mimeType: mimeType || "image/jpeg",
+    },
+  };
+}
+
 exports.phanTichBinhLuan = async (req, res) => {
   try {
-    // Nhận nội dung và cả id_tai_khoan (nếu user có đăng nhập, không thì bằng null)
-    const { noi_dung, id_tai_khoan } = req.body;
-    if (!noi_dung)
+    // Nhận thêm file_base64, file_mime_type, file_name (Vẫn giữ image_base64 cũ để không gãy test Postman của bạn)
+    const {
+      noi_dung,
+      id_chu_de,
+      hinh_anh_dinh_kem,
+      image_base64,
+      file_base64,
+      file_mime_type,
+      file_name,
+    } = req.body;
+
+    if (!noi_dung) {
       return res
         .status(400)
         .json({ success: false, message: "Vui lòng nhập nội dung bình luận!" });
+    }
 
     const startTime = Date.now();
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    const prompt = `
-        Bạn là một chuyên gia thẩm định ngôn ngữ học kiêm nhân viên kiểm duyệt đánh giá. Hãy đọc kỹ câu sau: "${noi_dung}"
+    // Hợp nhất dữ liệu: gửi ảnh cũ hay gửi file mới đều gom vào 1 biến
+    const rawMedia = file_base64 || image_base64;
+    const rawMime = file_mime_type || (image_base64 ? "image/jpeg" : null);
 
-        Nhiệm vụ của bạn là trả về strictly JSON thô (tuyệt đối không bọc trong ký tự markdown \`\`\` ở đầu hay cuối), gồm đúng 3 trường:
+    const prompt = `
+        Bạn là chuyên gia Thẩm định Ngôn ngữ học kiêm Giám định viên Tài liệu & Sản phẩm.
+        Hãy đọc bình luận sau: "${noi_dung}"
+        ${rawMedia ? "(LƯU Ý QUAN TRỌNG: Người dùng có đính kèm một Tệp tài liệu / Hình ảnh bên dưới. Hãy đọc/quan sát thật kỹ nội dung bên trong tệp này để đối chiếu với lời bình luận, phát hiện mâu thuẫn hoặc xác minh bằng chứng!)" : ""}
+
+        Nhiệm vụ của bạn là trả về STRICTLY JSON thô (tuyệt đối không bọc markdown \`\`\`), gồm đúng 6 trường:
         {
           "nhan_cam_xuc": "TICH_CUC" hoặc "TIEU_CUC" hoặc "CHUA_PHAN_LOAI",
           "danh_gia_sao": số nguyên từ 1 đến 5,
-          "ly_do_ai_cham": "Lập luận chi tiết giải thích vì sao bạn chấm số sao này dựa trên các từ khóa trong câu"
-        }
-
-        QUY TẮC BẮT BUỘC KHI VIẾT 'ly_do_ai_cham':
-        1. Trích dẫn lại đúng từ khóa/cụm từ quyết định trong câu.
-        2. Giải thích logic cộng/trừ sao khách quan, đi thẳng vào vấn đề.
-        `;
+          "tieu_chi_tin_cay": "Giải thích ngắn gọn căn cứ ngữ nghĩa (và căn cứ từ Tệp đính kèm nếu có) giúp bạn ra kết luận",
+          "sua_loi_chinh_ta": "Gợi ý sửa lỗi chính tả/từ lóng, hoặc ghi 'Không có lỗi'",
+          "ly_do_ai_cham": "Tóm tắt lập luận tổng quan trong 1 câu",
+          "danh_sach_khia_canh": [
+             {
+               "ten_khia_canh": "Tên khía cạnh (VD: Chất lượng sản phẩm, Thái độ hỗ trợ, Bằng chứng tài liệu...)",
+               "nhan_cam_xuc": "TICH_CUC" hoặc "TIEU_CUC" hoặc "TRUNG_LAP",
+               "trich_dan_goc": "Cắt từ khóa gốc làm bằng chứng"
+             }
+          ]
+        }`;
 
     let aiOutput = null;
     let soLanThu = 0;
-    const maxLanThu = 3;
 
-    // Vòng lặp Auto-Retry kiên trì chống lỗi 503
-    while (soLanThu < maxLanThu) {
+    const requestPayload = [prompt];
+    if (rawMedia && rawMime) {
+      requestPayload.push(base64ToGenerativePart(rawMedia, rawMime));
+    }
+
+    while (soLanThu < 3) {
       try {
         soLanThu++;
-        const result = await model.generateContent(prompt);
-        const rawText = result.response.text().trim();
-        const cleanText = rawText
+        const result = await model.generateContent(requestPayload);
+        const cleanText = result.response
+          .text()
           .replace(/```json/g, "")
           .replace(/```/g, "")
           .trim();
-
         aiOutput = JSON.parse(cleanText);
         break;
       } catch (err) {
-        if (soLanThu < maxLanThu) {
-          console.warn(
-            `⚠️ [Google 503 - Thử lần ${soLanThu}/3]: Máy chủ đang kẹt, đợi 2s...`,
-          );
-          await wait(2000);
-        }
+        if (soLanThu < 3) await wait(2000);
       }
     }
 
-    if (!aiOutput || !aiOutput.nhan_cam_xuc) {
-      return res.status(503).json({
-        success: false,
-        message:
-          "Hệ thống AI Google đang quá tải hàng đợi, vui lòng ấn gửi lại!",
-      });
+    if (!aiOutput) {
+      return res
+        .status(503)
+        .json({ success: false, message: "Hệ thống AI Google đang kẹt tải!" });
     }
 
     const thoiGianMs = Date.now() - startTime;
-    const nhanCamXuc = ["TICH_CUC", "TIEU_CUC"].includes(aiOutput.nhan_cam_xuc)
-      ? aiOutput.nhan_cam_xuc
-      : "CHUA_PHAN_LOAI";
     const danhGiaSao = Math.min(
       Math.max(parseInt(aiOutput.danh_gia_sao) || 3, 1),
       5,
     );
-
-    const bangHaiLong = {
-      5: "Rất hài lòng",
-      4: "Hài lòng",
-      3: "Bình thường",
-      2: "Thất vọng",
-      1: "Rất thất vọng",
-    };
-    const mucDoHaiLong = bangHaiLong[danhGiaSao];
-
     const doTinCay =
       danhGiaSao === 5 || danhGiaSao === 1
         ? 0.965
@@ -91,38 +103,39 @@ exports.phanTichBinhLuan = async (req, res) => {
           ? 0.885
           : 0.75;
 
-    // LƯU CHÍNH THỨC VÀO MYSQL (Lưu trọn vẹn cả User ID và Lập luận XAI)
+    // Lưu DB tự động nhận diện tên file
+    const tenFileLuu =
+      hinh_anh_dinh_kem ||
+      file_name ||
+      (rawMedia ? "tep_dinh_kem_multimodal" : null);
+
     const binhLuan = await db.BinhLuan.create({
-      id_tai_khoan: id_tai_khoan || null,
+      id_chu_de: id_chu_de || 1,
       noi_dung,
-      nhan_cam_xuc: nhanCamXuc,
+      hinh_anh_dinh_kem: tenFileLuu,
+      nhan_cam_xuc: aiOutput.nhan_cam_xuc || "CHUA_PHAN_LOAI",
       danh_gia_sao: danhGiaSao,
-      muc_do_hai_long: mucDoHaiLong,
       do_tin_cay: doTinCay,
-      ly_do_ai_cham: aiOutput.ly_do_ai_cham, // Đã lưu xuống CSDL
-      ai_version: "gemini-3.5-flash",
+      tieu_chi_tin_cay: aiOutput.tieu_chi_tin_cay,
+      sua_loi_chinh_ta: aiOutput.sua_loi_chinh_ta,
+      ly_do_ai_cham: aiOutput.ly_do_ai_cham,
+      thoi_gian_xu_ly_ms: thoiGianMs,
+      ai_version: rawMedia ? "gemini-2.5-flash-multimodal" : "gemini-2.5-flash",
     });
 
-    await db.NhatKyAI.create({
-      id_binh_luan: binhLuan.id,
-      thoi_gian_phan_hoi_ms: thoiGianMs,
-      trang_thai_api: "THANH_CONG",
-    });
+    if (aiOutput.danh_sach_khia_canh?.length > 0) {
+      const khiaCanhData = aiOutput.danh_sach_khia_canh.map((kc) => ({
+        id_binh_luan: binhLuan.id,
+        ten_khia_canh: kc.ten_khia_canh || "Chung",
+        nhan_cam_xuc: kc.nhan_cam_xuc || "TRUNG_LAP",
+        trich_dan_goc: kc.trich_dan_goc || "",
+      }));
+      await db.ChiTietKhiaCanh.bulkCreate(khiaCanhData);
+    }
 
     return res.status(200).json({
       success: true,
-      data: {
-        id: binhLuan.id,
-        id_tai_khoan: binhLuan.id_tai_khoan,
-        noi_dung,
-        nhanCamXuc: nhanCamXuc,
-        danhGiaSao: danhGiaSao,
-        mucDoHaiLong: mucDoHaiLong,
-        doTinCay: doTinCay,
-        lyDoCuaAI: aiOutput.ly_do_ai_cham,
-        thoiGianMs,
-        ai_version: "gemini-3.5-flash",
-      },
+      data: { id: binhLuan.id, ...aiOutput, thoiGianMs },
     });
   } catch (error) {
     console.error("❌ Lỗi AI Controller:", error);

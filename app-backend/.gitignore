@@ -1,2 +1,25 @@
+# Loại bỏ file rác của Mac
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Loại bỏ node_modules (Tuyệt đối không đẩy thư viện lên Git)
 node_modules/
+
+# Loại bỏ file cấu hình mật khẩu
 .env
+.env.local
+
+# Loại bỏ file log và file tạm của database
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-test.log*
+dist/
+build/
+coverage/
+
+# Loại bỏ các file của IDE
+.vscode/
+.idea/
