@@ -16,7 +16,6 @@ function base64ToGenerativePart(base64String, mimeType) {
 
 exports.phanTichBinhLuan = async (req, res) => {
   try {
-    // Nhận thêm file_base64, file_mime_type, file_name (Vẫn giữ image_base64 cũ để không gãy test Postman của bạn)
     const {
       noi_dung,
       id_chu_de,
@@ -36,20 +35,21 @@ exports.phanTichBinhLuan = async (req, res) => {
     const startTime = Date.now();
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
-    // Hợp nhất dữ liệu: gửi ảnh cũ hay gửi file mới đều gom vào 1 biến
     const rawMedia = file_base64 || image_base64;
     const rawMime = file_mime_type || (image_base64 ? "image/jpeg" : null);
 
+    // SIÊU PROMPT 7 TRƯỜNG: ÉP AI TỰ CHẤM ĐIỂM TIN CẬY KHÁCH QUAN
     const prompt = `
         Bạn là chuyên gia Thẩm định Ngôn ngữ học kiêm Giám định viên Tài liệu & Sản phẩm.
         Hãy đọc bình luận sau: "${noi_dung}"
         ${rawMedia ? "(LƯU Ý QUAN TRỌNG: Người dùng có đính kèm một Tệp tài liệu / Hình ảnh bên dưới. Hãy đọc/quan sát thật kỹ nội dung bên trong tệp này để đối chiếu với lời bình luận, phát hiện mâu thuẫn hoặc xác minh bằng chứng!)" : ""}
 
-        Nhiệm vụ của bạn là trả về STRICTLY JSON thô (tuyệt đối không bọc markdown \`\`\`), gồm đúng 6 trường:
+        Nhiệm vụ của bạn là trả về STRICTLY JSON thô (tuyệt đối không bọc markdown \`\`\`), gồm đúng 7 trường:
         {
           "nhan_cam_xuc": "TICH_CUC" hoặc "TIEU_CUC" hoặc "CHUA_PHAN_LOAI",
           "danh_gia_sao": số nguyên từ 1 đến 5,
-          "tieu_chi_tin_cay": "Giải thích ngắn gọn căn cứ ngữ nghĩa (và căn cứ từ Tệp đính kèm nếu có) giúp bạn ra kết luận",
+          "diem_tin_cay_ai": số thập phân từ 0.10 đến 0.99 (Đánh giá khách quan: Câu dài, tường minh, có logic hoặc khớp ảnh đính kèm thì chấm cao >0.90; câu cụt lủn hoặc ảnh không liên quan thì chấm thấp <0.60),
+          "tieu_chi_tin_cay": "Giải thích ngắn gọn căn cứ ngữ nghĩa và vật lý giúp bạn ra con số tin cậy này",
           "sua_loi_chinh_ta": "Gợi ý sửa lỗi chính tả/từ lóng, hoặc ghi 'Không có lỗi'",
           "ly_do_ai_cham": "Tóm tắt lập luận tổng quan trong 1 câu",
           "danh_sach_khia_canh": [
@@ -96,14 +96,10 @@ exports.phanTichBinhLuan = async (req, res) => {
       Math.max(parseInt(aiOutput.danh_gia_sao) || 3, 1),
       5,
     );
-    const doTinCay =
-      danhGiaSao === 5 || danhGiaSao === 1
-        ? 0.965
-        : danhGiaSao === 4 || danhGiaSao === 2
-          ? 0.885
-          : 0.75;
 
-    // Lưu DB tự động nhận diện tên file
+    // [ĐÃ TỐI ƯU]: Lấy trực tiếp điểm tin cậy thực tế do AI suy luận ra
+    const doTinCay = parseFloat(aiOutput.diem_tin_cay_ai) || 0.85;
+
     const tenFileLuu =
       hinh_anh_dinh_kem ||
       file_name ||
@@ -135,7 +131,7 @@ exports.phanTichBinhLuan = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      data: { id: binhLuan.id, ...aiOutput, thoiGianMs },
+      data: { id: binhLuan.id, ...aiOutput, do_tin_cay: doTinCay, thoiGianMs },
     });
   } catch (error) {
     console.error("❌ Lỗi AI Controller:", error);

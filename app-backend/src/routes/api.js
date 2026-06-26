@@ -30,5 +30,6 @@ router.post("/admin/login", adminController.loginAdmin);
 router.get("/admin/thong-ke-thoi-gian", adminController.thongKeThoiGian);
 router.get("/admin/binh-luan-danh-sach", adminController.layDanhSachBinhLuan);
 router.get("/admin/xuat-bao-cao", adminController.xuatBaoCao);
+router.get("/admin/thong-ke-san-pham", adminController.thongKeTheoSanPham);
 
 module.exports = router;
