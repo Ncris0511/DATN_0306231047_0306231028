@@ -45,43 +45,15 @@ class KetQuaAI {
     return KetQuaAI(
       id: parseIntSafe(json['id']),
       idTaiKhoan: parseIntSafe(json['id_tai_khoan'] ?? json['idTaiKhoan']),
-      noiDung:
-          json['noi_dung']?.toString() ??
-          json['noiDung']?.toString() ??
-          json['content']?.toString() ??
-          'Nội dung trống',
-      nhanCamXuc:
-          json['nhan_cam_xuc']?.toString() ??
-          json['nhanCamXuc']?.toString() ??
-          json['sentimentLabel']?.toString() ??
-          'TRUNG_LAP',
-      danhGiaSao: parseIntSafe(
-        json['danh_gia_sao'] ?? json['danhGiaSao'] ?? json['starRating'] ?? 3,
-      ),
-      mucDoHaiLong:
-          json['muc_do_hai_long']?.toString() ??
-          json['mucDoHaiLong']?.toString() ??
-          'Bình thường',
-      doTinCay: parseDoubleSafe(
-        json['do_tin_cay'] ?? json['doTinCay'] ?? json['confidenceScore'],
-      ),
-      lyDoCuaAI:
-          json['ly_do_ai_cham']?.toString() ??
-          json['ly_do_ai']?.toString() ??
-          json['lyDoCuaAI']?.toString() ??
-          'AI tự động phân loại',
-      thoiGianMs: parseIntSafe(
-        json['thoi_gian_ms'] ??
-            json['thoiGianMs'] ??
-            json['executionTimeMs'] ??
-            1250,
-      ),
-      aiVersion:
-          json['ai_version']?.toString() ??
-          json['aiVersion']?.toString() ??
-          'gemini-2.5-flash',
-      ngayTaoStr:
-          json['ngay_tao']?.toString() ?? json['createdAt']?.toString() ?? '',
+      noiDung: json['noi_dung']?.toString() ?? json['noiDung']?.toString() ?? 'Nội dung trống',
+      nhanCamXuc: json['nhan_cam_xuc']?.toString() ?? json['nhanCamXuc']?.toString() ?? 'TRUNG_LAP',
+      danhGiaSao: parseIntSafe(json['danh_gia_sao'] ?? json['danhGiaSao'] ?? 3),
+      mucDoHaiLong: json['muc_do_hai_long']?.toString() ?? 'Bình thường',
+      doTinCay: parseDoubleSafe(json['do_tin_cay'] ?? json['doTinCay']),
+      lyDoCuaAI: json['ly_do_ai_cham']?.toString() ?? json['ly_do_ai']?.toString() ?? 'AI tự động phân loại',
+      thoiGianMs: parseIntSafe(json['thoi_gian_xu_ly_ms'] ?? json['thoiGianMs']),
+      aiVersion: json['ai_version']?.toString() ?? json['aiVersion']?.toString() ?? 'gemini-2.5-flash',
+      ngayTaoStr: json['ngay_tao']?.toString() ?? '',
     );
   }
 }

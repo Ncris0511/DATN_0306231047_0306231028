@@ -30,30 +30,24 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-
-  # The following adds the Cupertino Icons font to your application.
-  # Use with the CupertinoIcons class for iOS style icons.
-  cupertino_icons: ^1.0.8
-  dio: ^5.9.2
-  provider: ^6.1.5+1
-  shared_preferences: ^2.5.5
-  fl_chart: ^1.2.0
-  shimmer: ^3.0.0
-  path_provider: ^2.1.5
-  open_file: ^3.5.11
-  flutter_rating_bar: ^4.0.1
-
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-
-  # The "flutter_lints" package below contains a set of recommended lints to
-  # encourage good coding practices. The lint set provided by the package is
-  # activated in the `analysis_options.yaml` file located at the root of your
-  # package. See that file for information about deactivating specific lint
-  # rules and activating additional ones.
-  flutter_lints: ^5.0.0
-
+  
+  # Xử lý API và JSON
+  dio: ^5.4.0
+  
+  # Quản lý State
+  provider: ^6.1.1
+  
+  # Tiện ích hệ thống (Định danh, Bộ nhớ đệm, Đường dẫn)
+  shared_preferences: ^2.2.2
+  device_info_plus: ^10.1.0
+  path_provider: ^2.1.2
+  
+  # Giao diện & Đa phương tiện
+  image_picker: ^1.0.7             # Để chọn ảnh từ thư viện
+  flutter_rating_bar: ^4.0.1       # Hiển thị sao đánh giá
+  shimmer: ^3.0.0                  # Hiệu ứng loading khung xương (skeleton)
+  fl_chart: ^0.66.0                # Vẽ biểu đồ Dashboard
+  open_file: ^3.3.2                # Hỗ trợ mở file Excel sau khi tải về
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 

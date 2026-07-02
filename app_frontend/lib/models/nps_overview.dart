@@ -20,7 +20,6 @@ class ChiSoNps {
   });
 
   factory ChiSoNps.fromJson(Map<String, dynamic> json) {
-    // Luồn lách an toàn qua các tầng JSON của Node.js:
     final data = json['data'] ?? {};
     final ai = data['ai_nhan_dien'] ?? {};
     final nps = data['chi_so_nps'] ?? {};
@@ -31,9 +30,9 @@ class ChiSoNps {
       tieuCuc: ai['tieu_cuc'] ?? 0,
       trungLap: ai['trung_lap'] ?? 0,
       diemNps: nps['diem'] ?? 0,
-      chanDoan: nps['chan_doan_suckhoe'] ?? 'Chưa có dữ liệu chẩn đoán',
-      mauSacUi: nps['mau_sac_ui'] ?? '0xFF2196F3',
-      thoiGianTbMs: data['thoi_gian_tb_ms'] ?? 0,
+      chanDoan: nps['loi_chan_doan'] ?? '',
+      mauSacUi: nps['ma_mau_hex'] ?? '0xFF2196F3',
+      thoiGianTbMs: data['toc_do_phan_hoi'] ?? 0,
     );
   }
 }
