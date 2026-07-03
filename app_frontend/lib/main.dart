@@ -23,11 +23,11 @@ class SentiFlowApp extends StatelessWidget {
       title: 'SentiFlow AI',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
-        // Trỏ vào class AppConfig trong file app_config.dart của bạn:
         primaryColor: AppConfig.primaryColor,
-        scaffoldBackgroundColor: AppConfig.bgCard,
+        scaffoldBackgroundColor: AppConfig.darkNavy,
         fontFamily: 'Roboto',
         useMaterial3: true,
+        textSelectionTheme: const TextSelectionThemeData(cursorColor: AppConfig.primaryColor),
       ),
       home: const GatewayScreen(),
     );
