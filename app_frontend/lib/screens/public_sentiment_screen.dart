@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:shimmer/shimmer.dart';
 import '../utils/app_config.dart';
 import '../providers/app_provider.dart';
 import '../widgets/chat_bubble.dart';
@@ -53,21 +54,35 @@ class _PublicSentimentScreenState extends State<PublicSentimentScreen> {
               itemBuilder: (context, i) => ChatBubble(
                 text: prov.cuocHoiThoaiHienTai[i].noiDung,
                 isUser: false, 
-                sentiment: prov.cuocHoiThoaiHienTai[i].nhanCamXuc,
+               sentiment: prov.cuocHoiThoaiHienTai[i].nhanCamXuc,
+              ketQuaAI: prov.cuocHoiThoaiHienTai[i], // Truyền data để bật popup độ tin cậy
               ),
             ),
           ),
           if (prov.isAnalyzing)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-              child: Row(
-                children: [
-                  const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(color: AppConfig.primaryColor, strokeWidth: 2)),
-                  const SizedBox(width: 12),
-                  Text("AI đang phân tích...", style: TextStyle(color: AppConfig.primaryColor.withValues(alpha: 0.8), fontSize: 13, fontStyle: FontStyle.italic)),
-                ],
-              ),
-            ),
+    Padding(
+      padding: const EdgeInsets.all(16),
+      child: Shimmer.fromColors(
+        baseColor: AppConfig.lightNavy,
+        highlightColor: AppConfig.primaryColor.withValues(alpha: 0.2),
+        child: Container(
+          width: MediaQuery.of(context).size.width * 0.7,
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.only(topLeft: Radius.circular(24), topRight: Radius.circular(24), bottomRight: Radius.circular(24), bottomLeft: Radius.circular(8)),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(width: 150, height: 12, color: Colors.white), const SizedBox(height: 8),
+              Container(width: double.infinity, height: 12, color: Colors.white), const SizedBox(height: 8),
+              Container(width: 100, height: 12, color: Colors.white),
+            ],
+          ),
+        ),
+      ),
+    ),
           if (_selectedImage != null)
             Container(
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8), padding: const EdgeInsets.all(8),

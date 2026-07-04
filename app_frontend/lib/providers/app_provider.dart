@@ -16,6 +16,8 @@ class AppProvider with ChangeNotifier {
   bool isAnalyzing = false;
   String? errorMessage;
 
+
+
   Map<String, dynamic>? guestUser;
   Map<String, dynamic>? currentUser;
   Map<String, dynamic>? adminUser;
@@ -24,6 +26,8 @@ class AppProvider with ChangeNotifier {
   bool get isAdmin => adminUser != null;
 
   List<ChuDeModel> danhSachChuDe = [];
+  List<ChuDeModel> danhSachChuDeGoc = []; // Lưu list gốc để filter
+  String tuKhoaTimKiem = '';
   ChuDeModel? chuDeHienTai;
   List<KetQuaAI> cuocHoiThoaiHienTai = [];
 
@@ -95,11 +99,24 @@ class AppProvider with ChangeNotifier {
   Future<void> taiDanhSachChuDe() async {
     final targetId = currentUser?['id'] ?? guestUser?['id'];
     if (targetId == null) return;
-    danhSachChuDe = await _apiService.layDanhSachSidebar(targetId);
+    danhSachChuDeGoc = await _apiService.layDanhSachSidebar(targetId);
+    _locDanhSachChuDe();
     if (danhSachChuDe.isNotEmpty && chuDeHienTai == null) await chonPhienChuDe(danhSachChuDe.first);
-    notifyListeners();
   }
 
+  void timKiemChuDe(String keyword) {
+    tuKhoaTimKiem = keyword.toLowerCase();
+    _locDanhSachChuDe();
+  }
+
+  void _locDanhSachChuDe() {
+    if (tuKhoaTimKiem.isEmpty) {
+      danhSachChuDe = List.from(danhSachChuDeGoc);
+    } else {
+      danhSachChuDe = danhSachChuDeGoc.where((c) => c.tenChuDe.toLowerCase().contains(tuKhoaTimKiem)).toList();
+    }
+    notifyListeners();
+  }
   Future<void> taoChuDeMoi(String tenChuDe) async {
     final targetId = currentUser?['id'] ?? guestUser?['id'];
     if (targetId == null) return;

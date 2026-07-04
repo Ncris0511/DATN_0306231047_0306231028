@@ -24,7 +24,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
     return Scaffold(
       backgroundColor: AppConfig.darkNavy,
       appBar: AppBar(
-        title: const Text('Dashboard', style: TextStyle(color: Colors.white)),
+        title: const Text('Admin Dashboard', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
         backgroundColor: AppConfig.lightNavy,
         actions: [
           IconButton(
@@ -43,6 +43,7 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
+                // KPI Cards
                 if (prov.chiSoNps != null) Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
@@ -51,34 +52,69 @@ class _AdminDashboardScreenState extends State<AdminDashboardScreen> {
                     _kpiCard("NPS", prov.chiSoNps!.diemNps.toString(), AppConfig.primaryColor),
                   ],
                 ),
-                const SizedBox(height: 24),
-                const Text("Thống kê bình luận", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 32),
+                
+                // Biểu đồ
+                const Text("Thống kê xu hướng bình luận", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 16),
-                if (prov.danhSachDiemThoiGian.isNotEmpty) Container(
-                  height: 300, padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(color: AppConfig.lightNavy, borderRadius: BorderRadius.circular(16)),
-                  child: BarChart(
-                    BarChartData(
-                      barGroups: prov.danhSachDiemThoiGian.asMap().entries.map((e) => BarChartGroupData(
-                        x: e.key,
-                        barRods: [
-                          BarChartRodData(toY: e.value.tichCuc.toDouble(), color: AppConfig.positiveColor, width: 12),
-                          BarChartRodData(toY: e.value.tieuCuc.toDouble(), color: AppConfig.negativeColor, width: 12),
-                        ],
-                      )).toList(),
-                      titlesData: FlTitlesData(
-                        leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 30, getTitlesWidget: (v, _) => Text(v.toInt().toString(), style: const TextStyle(color: Colors.white54, fontSize: 10)))),
-                        bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, _) => Text(v.toInt() >= 0 && v.toInt() < prov.danhSachDiemThoiGian.length ? prov.danhSachDiemThoiGian[v.toInt()].mox : '', style: const TextStyle(color: Colors.white54, fontSize: 10)))),
-                        rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
-                      ),
-                      gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (_) => FlLine(color: Colors.white10, strokeWidth: 1)),
-                      borderData: FlBorderData(show: false),
-                    ),
-                  ),
-                ),
+                _buildBieuDoThongKe(prov),
+                
+                const SizedBox(height: 32),
+                
+                // Bảng quản lý sản phẩm
+                const Text("Quản lý danh mục sản phẩm", style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
+                const SizedBox(height: 16),
+                _buildBangDanhSachSanPham(prov),
               ],
             ),
           ),
+    );
+  }
+
+  Widget _buildBieuDoThongKe(AppProvider prov) {
+    return Container(
+      height: 250, padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(color: AppConfig.lightNavy, borderRadius: BorderRadius.circular(20)),
+      child: BarChart(
+        BarChartData(
+          barGroups: prov.danhSachDiemThoiGian.asMap().entries.map((e) => BarChartGroupData(
+            x: e.key,
+            barRods: [
+              BarChartRodData(toY: e.value.tichCuc.toDouble(), color: AppConfig.positiveColor, width: 10),
+              BarChartRodData(toY: e.value.tieuCuc.toDouble(), color: AppConfig.negativeColor, width: 10),
+            ],
+          )).toList(),
+          titlesData: FlTitlesData(
+            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, reservedSize: 30, getTitlesWidget: (v, _) => Text(v.toInt().toString(), style: const TextStyle(color: Colors.white54, fontSize: 10)))),
+            bottomTitles: AxisTitles(sideTitles: SideTitles(showTitles: true, getTitlesWidget: (v, _) => Text(v.toInt() >= 0 && v.toInt() < prov.danhSachDiemThoiGian.length ? prov.danhSachDiemThoiGian[v.toInt()].mox : '', style: const TextStyle(color: Colors.white54, fontSize: 10)))),
+            rightTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)), topTitles: const AxisTitles(sideTitles: SideTitles(showTitles: false)),
+          ),
+          gridData: FlGridData(show: true, drawVerticalLine: false, getDrawingHorizontalLine: (_) => FlLine(color: Colors.white10, strokeWidth: 1)),
+          borderData: FlBorderData(show: false),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBangDanhSachSanPham(AppProvider prov) {
+    return Container(
+      decoration: BoxDecoration(color: AppConfig.lightNavy, borderRadius: BorderRadius.circular(20)),
+      child: DataTable(
+        columnSpacing: 20,
+        columns: const [
+          DataColumn(label: Text('Sản phẩm', style: TextStyle(color: Colors.white))),
+          DataColumn(label: Text('Bình luận', style: TextStyle(color: Colors.white))),
+          DataColumn(label: Text('Trạng thái', style: TextStyle(color: Colors.white))),
+        ],
+        rows: prov.danhSachChuDe.map((topic) => DataRow(cells: [
+          DataCell(Text(topic.tenChuDe, style: const TextStyle(color: AppConfig.primaryColor))),
+          DataCell(Text(topic.soLuongBinhLuan.toString(), style: const TextStyle(color: Colors.white70))),
+          DataCell(Chip(
+            label: Text(topic.phanQuyetAi == 'APPROVED_NEN_MUA' ? 'NÊN MUA' : 'CÂN NHẮC', style: const TextStyle(fontSize: 10, color: Colors.white)),
+            backgroundColor: topic.phanQuyetAi == 'APPROVED_NEN_MUA' ? AppConfig.positiveColor : AppConfig.negativeColor,
+          )),
+        ])).toList(),
+      ),
     );
   }
 
