@@ -1,42 +1,155 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import '../utils/app_config.dart';
-import 'public_sentiment_screen.dart';
-import 'user_login_screen.dart';
-import 'admin_login_screen.dart';
+import '../providers/app_provider.dart';
+import 'user/public_sentiment_screen.dart';
+import 'user/user_login_screen.dart';
+import 'admin/admin_login_screen.dart';
 
 class GatewayScreen extends StatelessWidget {
   const GatewayScreen({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final isDark = context.watch<AppProvider>().isDarkMode;
+
     return Scaffold(
-      backgroundColor: AppConfig.darkNavy,
-      body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(Icons.psychology_alt_rounded, size: 100, color: AppConfig.primaryColor),
-            const SizedBox(height: 24),
-            const Text('SentiFlow AI', style: TextStyle(color: Colors.white, fontSize: 32, fontWeight: FontWeight.bold, letterSpacing: 1.5)),
-            const SizedBox(height: 8),
-            Text('Gemini-powered Sentiment Analysis', style: TextStyle(color: AppConfig.primaryColor.withValues(alpha: 0.8), fontSize: 14)),
-            const SizedBox(height: 48),
-            ElevatedButton(
-              style: ElevatedButton.styleFrom(backgroundColor: AppConfig.primaryColor, foregroundColor: AppConfig.darkNavy, padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 16), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30))),
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const UserLoginScreen())),
-              child: const Text('ĐĂNG NHẬP / ĐĂNG KÝ', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
-            ),
-            const SizedBox(height: 16),
-            TextButton(
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PublicSentimentScreen())),
-              child: const Text('Trải nghiệm ẩn danh (Guest)', style: TextStyle(color: Colors.white70, decoration: TextDecoration.underline)),
-            ),
-            const SizedBox(height: 32),
-            TextButton.icon(
-              icon: const Icon(Icons.admin_panel_settings, color: Colors.white54), label: const Text('Khu vực Quản trị', style: TextStyle(color: Colors.white54)),
-              onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const AdminLoginScreen())),
-            )
-          ],
+      body: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: isDark
+                ? [const Color(0xFF0F172A), const Color(0xFF1E1B4B)]
+                : [const Color(0xFFEFF6FF), const Color(0xFFDBEAFE)],
+          ),
+        ),
+        child: SafeArea(
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(24),
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: AppConfig.primary(isDark).withOpacity(0.1),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppConfig.primary(isDark).withOpacity(0.2),
+                      blurRadius: 40,
+                      spreadRadius: 10,
+                    ),
+                  ],
+                ),
+                child: Icon(
+                  Icons.psychology_alt_rounded,
+                  size: 90,
+                  color: AppConfig.primary(isDark),
+                ),
+              ),
+              const SizedBox(height: 32),
+              Text(
+                'SentiFlow AI',
+                style: TextStyle(
+                  color: AppConfig.textMain(isDark),
+                  fontSize: 40,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1.5,
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: AppConfig.primary(isDark).withOpacity(0.15),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  'Giám định Cảm xúc Sản phẩm Đa luồng',
+                  style: TextStyle(
+                    color: AppConfig.primary(isDark),
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 60),
+
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: SizedBox(
+                  width: double.infinity,
+                  height: 55,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppConfig.primary(isDark),
+                      elevation: 8,
+                      shadowColor: AppConfig.primary(isDark).withOpacity(0.4),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(16),
+                      ),
+                    ),
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => const UserLoginScreen(),
+                      ),
+                    ),
+                    child: Text(
+                      'BẮT ĐẦU SỬ DỤNG',
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: AppConfig.primaryText(isDark),
+                        letterSpacing: 1.0,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              TextButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => const PublicSentimentScreen(),
+                  ),
+                ),
+                child: Text(
+                  'Trải nghiệm nhanh (Khách ẩn danh)',
+                  style: TextStyle(
+                    color: AppConfig.textSub(isDark),
+                    decoration: TextDecoration.underline,
+                    fontSize: 14,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 60),
+
+              TextButton.icon(
+                icon: Icon(
+                  Icons.admin_panel_settings,
+                  color: AppConfig.textSub(isDark),
+                  size: 18,
+                ),
+                label: Text(
+                  'Khu vực Quản trị Hệ thống',
+                  style: TextStyle(
+                    color: AppConfig.textSub(isDark),
+                    fontSize: 13,
+                  ),
+                ),
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const AdminLoginScreen()),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

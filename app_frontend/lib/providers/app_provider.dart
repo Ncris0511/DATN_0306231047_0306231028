@@ -11,12 +11,12 @@ import '../services/api_service.dart';
 
 class AppProvider with ChangeNotifier {
   final ApiService _apiService = ApiService();
-
   bool isLoading = false;
   bool isAnalyzing = false;
   String? errorMessage;
-
-
+  bool isDarkMode = false;
+  String? deviceIdMacDinh;
+  bool isInitDone = false;
 
   Map<String, dynamic>? guestUser;
   Map<String, dynamic>? currentUser;
@@ -26,7 +26,7 @@ class AppProvider with ChangeNotifier {
   bool get isAdmin => adminUser != null;
 
   List<ChuDeModel> danhSachChuDe = [];
-  List<ChuDeModel> danhSachChuDeGoc = []; // Lưu list gốc để filter
+  List<ChuDeModel> danhSachChuDeGoc = [];
   String tuKhoaTimKiem = '';
   ChuDeModel? chuDeHienTai;
   List<KetQuaAI> cuocHoiThoaiHienTai = [];
@@ -35,33 +35,54 @@ class AppProvider with ChangeNotifier {
   List<DiemThoiGian> danhSachDiemThoiGian = [];
   String boLocThoiGianHienTai = '7_ngay';
 
-  AppProvider() { _kiemTraDangNhapCu(); }
+  AppProvider() {
+    _kiemTraDangNhapCu();
+  }
+
+  Future<void> toggleTheme() async {
+    isDarkMode = !isDarkMode;
+    notifyListeners();
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('is_dark_mode', isDarkMode);
+  }
 
   Future<void> _kiemTraDangNhapCu() async {
     final prefs = await SharedPreferences.getInstance();
-    
+    isDarkMode = prefs.getBool('is_dark_mode') ?? false;
+    deviceIdMacDinh = prefs.getString('device_id');
+
+    if (deviceIdMacDinh == null || deviceIdMacDinh!.isEmpty) {
+      deviceIdMacDinh = 'guest_${DateTime.now().millisecondsSinceEpoch}';
+      await prefs.setString('device_id', deviceIdMacDinh!);
+    }
+
     final adminName = prefs.getString('admin_ho_ten');
-    if (adminName != null) adminUser = {'ho_ten': adminName, 'vai_tro': prefs.getString('admin_vai_tro')};
+    if (adminName != null)
+      adminUser = {
+        'ho_ten': adminName,
+        'vai_tro': prefs.getString('admin_vai_tro'),
+      };
 
     final userName = prefs.getString('user_ho_ten');
     if (userName != null) {
-      currentUser = {'id': prefs.getInt('user_id'), 'ho_ten': userName, 'email': prefs.getString('user_email')};
+      currentUser = {
+        'id': prefs.getInt('user_id'),
+        'ho_ten': userName,
+        'email': prefs.getString('user_email'),
+      };
       await taiDanhSachChuDe();
     } else {
-      khoiChayPhienKhach();
+      await khoiChayPhienKhach();
     }
+    isInitDone = true;
     notifyListeners();
   }
 
-  // --- AUTH CLIENT ---
   Future<void> khoiChayPhienKhach() async {
     try {
-      String deviceId = 'unknown_device_id';
-      final deviceInfo = DeviceInfoPlugin();
-      if (Platform.isAndroid) deviceId = (await deviceInfo.androidInfo).id;
-      else if (Platform.isIOS) deviceId = (await deviceInfo.iosInfo).identifierForVendor ?? 'ios';
-      
-      final userData = await _apiService.loginGuest(deviceId);
+      final userData = await _apiService.loginGuest(
+        deviceIdMacDinh ?? 'unknown',
+      );
       if (userData != null) {
         guestUser = userData;
         await taiDanhSachChuDe();
@@ -70,38 +91,106 @@ class AppProvider with ChangeNotifier {
     notifyListeners();
   }
 
+  // ============================================
+  // [ĐÃ NÂNG CẤP]: ĐĂNG NHẬP GIỮ NGUYÊN MÀN HÌNH CHAT
+  // ============================================
   Future<bool> dangNhapClient(String email, String pwd) async {
-    isLoading = true; errorMessage = null; notifyListeners();
-    final user = await _apiService.loginClient(email, pwd);
+    isLoading = true;
+    errorMessage = null;
+    notifyListeners();
+
+    // Gửi deviceIdMacDinh lên để Node.js gom dữ liệu
+    final user = await _apiService.loginClient(email, pwd, deviceIdMacDinh);
+
     if (user != null) {
       currentUser = user;
+      guestUser = null;
+
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('user_id', user['id']);
       await prefs.setString('user_ho_ten', user['ho_ten']);
-      await prefs.setString('user_email', user['email']);
+      await prefs.setString('user_email', email);
+
+      // Làm mới DeviceID để khách sau không bị trùng
+      deviceIdMacDinh = 'guest_${DateTime.now().millisecondsSinceEpoch}';
+      await prefs.setString('device_id', deviceIdMacDinh!);
+
+      // Lấy danh sách Topic về (lúc này các Topic cũ đã thuộc sở hữu của User mới)
       await taiDanhSachChuDe();
-      isLoading = false; notifyListeners();
+
+      // TỰ ĐỘNG KHÔI PHỤC MÀN HÌNH CHAT MÀ KHÔNG CẦN CLEAR()
+      if (chuDeHienTai != null) {
+        try {
+          // Tìm Topic đang mở xem nó có nằm trong danh sách mới không
+          final matched = danhSachChuDeGoc.firstWhere(
+            (c) => c.id == chuDeHienTai!.id,
+          );
+          chuDeHienTai = matched;
+        } catch (_) {
+          // Nếu không thấy thì mới dọn dẹp
+          chuDeHienTai = null;
+          cuocHoiThoaiHienTai.clear();
+        }
+      }
+
+      isLoading = false;
+      notifyListeners();
       return true;
     }
-    isLoading = false; errorMessage = 'Sai email hoặc mật khẩu!'; notifyListeners();
+
+    isLoading = false;
+    errorMessage = 'Sai email hoặc mật khẩu!';
+    notifyListeners();
     return false;
+  }
+
+  Future<bool> doiMatKhauUser(String cu, String moi) async {
+    if (currentUser == null) return false;
+    isLoading = true;
+    notifyListeners();
+    final success = await _apiService.doiMatKhau(currentUser!['id'], cu, moi);
+    isLoading = false;
+    notifyListeners();
+    return success;
+  }
+
+  Future<bool> capNhatHoTenUser(String tenMoi) async {
+    if (currentUser == null) return false;
+    isLoading = true;
+    notifyListeners();
+    final success = await _apiService.capNhatThongTin(
+      currentUser!['id'],
+      tenMoi,
+    );
+    if (success) {
+      currentUser!['ho_ten'] = tenMoi;
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('user_ho_ten', tenMoi);
+    }
+    isLoading = false;
+    notifyListeners();
+    return success;
   }
 
   Future<void> dangXuatClient() async {
     currentUser = null;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('user_id'); await prefs.remove('user_ho_ten'); await prefs.remove('user_email');
-    danhSachChuDe.clear(); chuDeHienTai = null; cuocHoiThoaiHienTai.clear();
-    khoiChayPhienKhach();
+    await prefs.remove('user_id');
+    await prefs.remove('user_ho_ten');
+    await prefs.remove('user_email');
+    deviceIdMacDinh = 'guest_${DateTime.now().millisecondsSinceEpoch}';
+    await prefs.setString('device_id', deviceIdMacDinh!);
+    danhSachChuDe.clear();
+    chuDeHienTai = null;
+    cuocHoiThoaiHienTai.clear();
+    await khoiChayPhienKhach();
   }
 
-  // --- CHAT LOGIC ---
   Future<void> taiDanhSachChuDe() async {
     final targetId = currentUser?['id'] ?? guestUser?['id'];
     if (targetId == null) return;
     danhSachChuDeGoc = await _apiService.layDanhSachSidebar(targetId);
     _locDanhSachChuDe();
-    if (danhSachChuDe.isNotEmpty && chuDeHienTai == null) await chonPhienChuDe(danhSachChuDe.first);
   }
 
   void timKiemChuDe(String keyword) {
@@ -110,68 +199,207 @@ class AppProvider with ChangeNotifier {
   }
 
   void _locDanhSachChuDe() {
-    if (tuKhoaTimKiem.isEmpty) {
+    if (tuKhoaTimKiem.isEmpty)
       danhSachChuDe = List.from(danhSachChuDeGoc);
-    } else {
-      danhSachChuDe = danhSachChuDeGoc.where((c) => c.tenChuDe.toLowerCase().contains(tuKhoaTimKiem)).toList();
-    }
+    else
+      danhSachChuDe = danhSachChuDeGoc
+          .where((c) => c.tenChuDe.toLowerCase().contains(tuKhoaTimKiem))
+          .toList();
     notifyListeners();
   }
+
   Future<void> taoChuDeMoi(String tenChuDe) async {
     final targetId = currentUser?['id'] ?? guestUser?['id'];
     if (targetId == null) return;
-    isLoading = true; notifyListeners();
+    isLoading = true;
+    notifyListeners();
     final newTopic = await _apiService.taoChuDeMoi(targetId, tenChuDe);
-    if (newTopic != null) { danhSachChuDe.insert(0, newTopic); await chonPhienChuDe(newTopic); }
-    isLoading = false; notifyListeners();
+    if (newTopic != null) {
+      danhSachChuDe.insert(0, newTopic);
+      await chonPhienChuDe(newTopic);
+    }
+    isLoading = false;
+    notifyListeners();
+  }
+
+  Future<void> xoaChuDeX(int idChuDe) async {
+    final targetId = currentUser?['id'] ?? guestUser?['id'];
+    if (targetId == null) return;
+    final thanhCong = await _apiService.xoaChuDe(idChuDe, targetId);
+    if (thanhCong) {
+      danhSachChuDeGoc.removeWhere((c) => c.id == idChuDe);
+      _locDanhSachChuDe();
+      if (chuDeHienTai?.id == idChuDe) {
+        chuDeHienTai = null;
+        cuocHoiThoaiHienTai.clear();
+      }
+      notifyListeners();
+    }
   }
 
   Future<void> chonPhienChuDe(ChuDeModel chuDe) async {
-    chuDeHienTai = chuDe; isLoading = true; notifyListeners();
+    chuDeHienTai = chuDe;
+    isLoading = true;
+    notifyListeners();
     cuocHoiThoaiHienTai = await _apiService.layChiTietPhienChat(chuDe.id);
-    isLoading = false; notifyListeners();
+    isLoading = false;
+    notifyListeners();
   }
 
-  Future<void> guiBinhLuanVaPhanTich(String noiDung, {File? imageFile}) async {
+  Future<void> guiBinhLuanVaPhanTich(
+    String noiDung, {
+    File? fileDinhKem,
+    bool isImage = true,
+  }) async {
     if (chuDeHienTai == null) return;
-    isAnalyzing = true; notifyListeners();
+    final textGuiDi = noiDung.trim().isEmpty
+        ? "Hãy phân tích tài liệu đính kèm này."
+        : noiDung.trim();
+
+    final tinNhanTam = KetQuaAI(
+      id: DateTime.now().millisecondsSinceEpoch,
+      noiDung: textGuiDi,
+      nhanCamXuc: 'CHUA_PHAN_LOAI',
+      doTinCay: 0.0,
+      lyDoCuaAI: '',
+      tieuChiTinCay: '',
+      danhGiaSao: 0,
+      lyDoDanhGiaSao: '',
+      danhSachKhiaCanh: [],
+    );
+    cuocHoiThoaiHienTai.add(tinNhanTam);
+    isAnalyzing = true;
+    notifyListeners();
+
     try {
-      String? base64Str; String? fName;
-      if (imageFile != null) {
-        base64Str = base64Encode(await imageFile.readAsBytes());
-        fName = imageFile.path.split('/').last;
+      String? base64Str;
+      String? fName;
+      if (fileDinhKem != null) {
+        base64Str = base64Encode(await fileDinhKem.readAsBytes());
+        fName = fileDinhKem.path.split('/').last;
       }
-      final res = await _apiService.phanTichBinhLuan(noiDung: noiDung, idChuDe: chuDeHienTai!.id, imageBase64: base64Str, fileName: fName);
-      if (res != null) cuocHoiThoaiHienTai.add(res);
-    } catch (_) {}
-    isAnalyzing = false; notifyListeners();
+      final res = await _apiService.phanTichBinhLuan(
+        noiDung: textGuiDi,
+        idChuDe: chuDeHienTai!.id,
+        imageBase64: isImage ? base64Str : null,
+        fileName: fName,
+      );
+      cuocHoiThoaiHienTai.removeLast();
+
+      if (res != null) {
+        final resHoanChinh = KetQuaAI(
+          id: res.id,
+          noiDung: textGuiDi,
+          nhanCamXuc: res.nhanCamXuc,
+          doTinCay: res.doTinCay,
+          lyDoCuaAI: res.lyDoCuaAI,
+          tieuChiTinCay: res.tieuChiTinCay,
+          danhGiaSao: res.danhGiaSao,
+          lyDoDanhGiaSao: res.lyDoDanhGiaSao,
+          danhSachKhiaCanh: res.danhSachKhiaCanh,
+        );
+        cuocHoiThoaiHienTai.add(resHoanChinh);
+        chuDeHienTai = ChuDeModel(
+          id: chuDeHienTai!.id,
+          idTaiKhoan: chuDeHienTai!.idTaiKhoan,
+          tenChuDe: chuDeHienTai!.tenChuDe,
+          phanQuyetAi: 'CHUA_HOI_CHAN',
+          tomTatAi: null,
+        );
+        final index = danhSachChuDe.indexWhere((c) => c.id == chuDeHienTai!.id);
+        if (index != -1) danhSachChuDe[index] = chuDeHienTai!;
+      } else {
+        cuocHoiThoaiHienTai.add(
+          KetQuaAI(
+            id: -1,
+            noiDung: textGuiDi,
+            nhanCamXuc: 'TIEU_CUC',
+            doTinCay: 0.0,
+            lyDoCuaAI: '⚠ LỖI: Máy chủ không trả về dữ liệu.',
+            tieuChiTinCay: '',
+          ),
+        );
+      }
+    } catch (e) {
+      cuocHoiThoaiHienTai.removeLast();
+      String loiThucTe = e.toString().replaceAll('Exception: ', '');
+      cuocHoiThoaiHienTai.add(
+        KetQuaAI(
+          id: -1,
+          noiDung: textGuiDi,
+          nhanCamXuc: 'TIEU_CUC',
+          doTinCay: 0.0,
+          lyDoCuaAI: '⚠ LỖI TỪ SERVER: $loiThucTe',
+          tieuChiTinCay: '',
+        ),
+      );
+    }
+    isAnalyzing = false;
+    notifyListeners();
   }
 
-  // --- ADMIN LOGIC ---
+  Future<bool> goiHoiChanChotHa({bool anLoading = false}) async {
+    if (chuDeHienTai == null) return false;
+    if (!anLoading) {
+      isLoading = true;
+      notifyListeners();
+    }
+    final ketQua = await _apiService.hoiChanPhienChat(chuDeHienTai!.id);
+    bool success = false;
+    if (ketQua != null) {
+      chuDeHienTai = ChuDeModel(
+        id: chuDeHienTai!.id,
+        idTaiKhoan: chuDeHienTai!.idTaiKhoan,
+        tenChuDe: chuDeHienTai!.tenChuDe,
+        phanQuyetAi: ketQua['phan_quyet_ai'],
+        tomTatAi: ketQua['tom_tat_ai'],
+      );
+      final index = danhSachChuDe.indexWhere((c) => c.id == chuDeHienTai!.id);
+      if (index != -1) danhSachChuDe[index] = chuDeHienTai!;
+      success = true;
+    }
+    if (!anLoading) {
+      isLoading = false;
+      notifyListeners();
+    }
+    return success;
+  }
+
   Future<bool> dangNhapAdmin(String usr, String pwd) async {
-    isLoading = true; notifyListeners();
+    isLoading = true;
+    errorMessage = null;
+    notifyListeners();
     final user = await _apiService.loginAdmin(usr, pwd);
     if (user != null && user['vai_tro'] == 'quan_tri') {
       adminUser = user;
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('admin_ho_ten', user['ho_ten']);
       await prefs.setString('admin_vai_tro', user['vai_tro']);
-      isLoading = false; notifyListeners(); return true;
+      isLoading = false;
+      notifyListeners();
+      return true;
     }
-    isLoading = false; notifyListeners(); return false;
+    errorMessage = 'Tài khoản không tồn tại hoặc không có quyền Admin!';
+    isLoading = false;
+    notifyListeners();
+    return false;
   }
 
   Future<void> dangXuatAdmin() async {
     adminUser = null;
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove('admin_ho_ten'); await prefs.remove('admin_vai_tro');
     notifyListeners();
   }
 
   Future<void> taiDuLieuDashboard() async {
-    isLoading = true; notifyListeners();
-    final results = await Future.wait([_apiService.layChiSoNps(), _apiService.layThongKeThoiGian(locTheo: boLocThoiGianHienTai)]);
-    chiSoNps = results[0] as ChiSoNps?; danhSachDiemThoiGian = (results[1] as List<DiemThoiGian>?) ?? [];
-    isLoading = false; notifyListeners();
+    isLoading = true;
+    notifyListeners();
+    final results = await Future.wait([
+      _apiService.layChiSoNps(),
+      _apiService.layThongKeThoiGian(locTheo: boLocThoiGianHienTai),
+    ]);
+    chiSoNps = results[0] as ChiSoNps?;
+    danhSachDiemThoiGian = (results[1] as List<DiemThoiGian>?) ?? [];
+    isLoading = false;
+    notifyListeners();
   }
 }
