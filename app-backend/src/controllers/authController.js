@@ -1,215 +1,94 @@
 const db = require("../config/db");
 
-// 1. GUEST ONBOARDING (Khách dùng thử)
-exports.loginGuest = async (req, res) => {
+// 1. ĐĂNG KÝ (NÂNG CẤP TÀI KHOẢN KHÁCH ĐỂ GIỮ LỊCH SỬ)
+exports.register = async (req, res) => {
   try {
-    const { device_id } = req.body;
-    if (!device_id) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Thiếu định danh thiết bị (device_id)!",
-        });
-    }
+    const { ho_ten, ten_dang_nhap, email, so_dien_thoai, mat_khau, device_id } = req.body;
 
-    const [user, created] = await db.TaiKhoan.findOrCreate({
-      where: { device_id: device_id },
-      defaults: { ho_ten: "Khách Ẩn Danh", vai_tro: "khach" },
-    });
+    const checkUser = await db.TaiKhoan.findOne({ where: { ten_dang_nhap: email || ten_dang_nhap } });
+    if (checkUser) return res.status(400).json({ success: false, message: "Email hoặc tài khoản đã tồn tại!" });
 
-    return res.status(200).json({
-      success: true,
-      is_new_guest: created,
-      message: created
-        ? "Khởi tạo phiên Khách thành công!"
-        : "Đã khôi phục dữ liệu Khách cũ!",
-      data: user,
-    });
-  } catch (error) {
-    return res
-      .status(500)
-      .json({ success: false, message: "Lỗi định danh thiết bị máy chủ" });
-  }
-};
-
-// 2. ĐĂNG KÝ TÀI KHOẢN CHÍNH THỨC (Có đồng hóa tài khoản bóng)
-exports.registerUser = async (req, res) => {
-  try {
-    const { ten_dang_nhap, mat_khau, ho_ten, device_id } = req.body;
-    if (!ten_dang_nhap || !mat_khau) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Vui lòng nhập đủ tài khoản và mật khẩu!",
-        });
-    }
-
-    const daTonTai = await db.TaiKhoan.findOne({ where: { ten_dang_nhap } });
-    if (daTonTai) {
-      return res
-        .status(409)
-        .json({
-          success: false,
-          message: "Tên đăng nhập này đã có người sử dụng!",
-        });
-    }
-
-    // Nếu khách đang xài thử bấm nâng cấp -> Cập nhật thẳng vào bản ghi cũ
+    // [TÍNH NĂNG CHUYỂN GIAO]: Biến Khách thành User thật để giữ trọn lịch sử
     if (device_id) {
-      const khachBong = await db.TaiKhoan.findOne({
-        where: { device_id, vai_tro: "khach" },
-      });
-      if (khachBong) {
-        khachBong.ten_dang_nhap = ten_dang_nhap;
-        khachBong.mat_khau = mat_khau;
-        khachBong.ho_ten = ho_ten || "Thành viên SentiFlow";
-        khachBong.vai_tro = "nguoi_dung";
-        await khachBong.save();
-
-        return res
-          .status(200)
-          .json({
-            success: true,
-            message: "Nâng cấp tài khoản thành công!",
-            data: khachBong,
-          });
+      const guestUser = await db.TaiKhoan.findOne({ where: { device_id: device_id, vai_tro: "khach" } });
+      if (guestUser) {
+        guestUser.ho_ten = ho_ten || "Thành viên SentiFlow";
+        guestUser.ten_dang_nhap = email || ten_dang_nhap;
+        guestUser.email = email;
+        guestUser.so_dien_thoai = so_dien_thoai;
+        guestUser.mat_khau = mat_khau;
+        guestUser.vai_tro = "nguoi_dung";
+        await guestUser.save();
+        return res.status(201).json({ success: true, data: guestUser });
       }
     }
 
-    const userMoi = await db.TaiKhoan.create({
-      ten_dang_nhap,
-      mat_khau,
-      ho_ten: ho_ten || "Thành viên SentiFlow",
-      vai_tro: "nguoi_dung",
+    const newUser = await db.TaiKhoan.create({
+      ho_ten: ho_ten || "Thành viên SentiFlow", ten_dang_nhap: email || ten_dang_nhap, 
+      email: email, so_dien_thoai: so_dien_thoai, mat_khau: mat_khau, device_id: device_id, vai_tro: "nguoi_dung"
     });
-
-    return res
-      .status(201)
-      .json({ success: true, message: "Đăng ký thành công!", data: userMoi });
+    return res.status(201).json({ success: true, data: newUser });
   } catch (error) {
-    return res
-      .status(500)
-      .json({ success: false, message: "Lỗi máy chủ khi đăng ký" });
+    return res.status(500).json({ success: false, message: "Lỗi Server khi tạo tài khoản" });
   }
 };
 
-// 3. ĐĂNG NHẬP NGƯỜI DÙNG THẬT
-exports.loginUser = async (req, res) => {
+// 2. ĐĂNG NHẬP (CHUYỂN HẾT DATA TỪ KHÁCH SANG TÀI KHOẢN CŨ)
+exports.login = async (req, res) => {
   try {
-    const { ten_dang_nhap, mat_khau } = req.body;
-    const user = await db.TaiKhoan.findOne({
-      where: { ten_dang_nhap, mat_khau, vai_tro: "nguoi_dung" },
-    });
+    const { ten_dang_nhap, email, mat_khau, device_id } = req.body; // CẦN NHẬN DEVICE_ID
+    const user = await db.TaiKhoan.findOne({ where: { ten_dang_nhap: ten_dang_nhap || email, mat_khau: mat_khau } });
 
-    if (!user) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Sai tên đăng nhập hoặc mật khẩu!" });
+    if (!user) return res.status(400).json({ success: false, message: "Sai tài khoản hoặc mật khẩu" });
+
+    // [TÍNH NĂNG CHUYỂN GIAO]: Kéo dữ liệu từ Ẩn danh gom vào User này
+    if (device_id) {
+      const guestUser = await db.TaiKhoan.findOne({ where: { device_id: device_id, vai_tro: "khach" } });
+      if (guestUser && guestUser.id !== user.id) {
+        // Đổi chủ sở hữu toàn bộ Chủ đề
+        await db.ChuDePhanTich.update({ id_tai_khoan: user.id }, { where: { id_tai_khoan: guestUser.id } });
+        // Xóa Khách để dọn rác
+        await guestUser.destroy(); 
+      }
     }
 
-    return res
-      .status(200)
-      .json({ success: true, message: "Đăng nhập thành công!", data: user });
+    return res.status(200).json({ success: true, data: user });
   } catch (error) {
-    return res
-      .status(500)
-      .json({ success: false, message: "Lỗi máy chủ đăng nhập" });
+    return res.status(500).json({ success: false, message: "Lỗi Server" });
   }
 };
-// 4. THAY ĐỔI MẬT KHẨU (Change Password)
+
+exports.guest = async (req, res) => {
+  try {
+    const { device_id } = req.body;
+    let user = await db.TaiKhoan.findOne({ where: { device_id: device_id } });
+    if (!user) {
+      user = await db.TaiKhoan.create({ device_id: device_id, ho_ten: "Khách Ẩn Danh", vai_tro: "khach" });
+    }
+    return res.status(200).json({ success: true, data: user });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: "Lỗi Server" });
+  }
+};
+
 exports.doiMatKhau = async (req, res) => {
   try {
     const { id_tai_khoan, mat_khau_cu, mat_khau_moi } = req.body;
-
-    if (!id_tai_khoan || !mat_khau_cu || !mat_khau_moi) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Vui lòng điền đầy đủ mật khẩu cũ và mới!",
-        });
-    }
-
     const user = await db.TaiKhoan.findByPk(id_tai_khoan);
-    if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Tài khoản không tồn tại!" });
-    }
-
-    // Chặn trường hợp tài khoản Khách vãng lai chưa có pass mà đòi đi đổi
-    if (user.vai_tro === "khach" || !user.mat_khau) {
-      return res
-        .status(403)
-        .json({
-          success: false,
-          message: "Tài khoản Khách dùng thử không có mật khẩu để đổi!",
-        });
-    }
-
-    // Kiểm tra mật khẩu cũ có khớp DB không
-    if (user.mat_khau !== mat_khau_cu) {
-      return res
-        .status(401)
-        .json({ success: false, message: "Mật khẩu cũ không chính xác!" });
-    }
-
-    if (mat_khau_cu === mat_khau_moi) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Mật khẩu mới không được trùng với mật khẩu hiện tại!",
-        });
-    }
-
+    if (!user || user.mat_khau !== mat_khau_cu) return res.status(400).json({ success: false, message: "Sai mật khẩu cũ" });
     user.mat_khau = mat_khau_moi;
     await user.save();
-
-    return res
-      .status(200)
-      .json({ success: true, message: "Thay đổi mật khẩu thành công!" });
-  } catch (error) {
-    console.error("❌ Lỗi đổi mật khẩu:", error);
-    return res
-      .status(500)
-      .json({ success: false, message: "Lỗi máy chủ khi cập nhật mật khẩu" });
-  }
+    return res.status(200).json({ success: true, message: "Đổi mật khẩu thành công" });
+  } catch (error) { return res.status(500).json({ success: false, message: "Lỗi Server" }); }
 };
 
-// 5. CẬP NHẬT THÔNG TIN CÁ NHÂN (Họ tên)
 exports.capNhatThongTin = async (req, res) => {
   try {
     const { id_tai_khoan, ho_ten } = req.body;
-    if (!id_tai_khoan || !ho_ten) {
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Thiếu ID tài khoản hoặc họ tên mới!",
-        });
-    }
-
     const user = await db.TaiKhoan.findByPk(id_tai_khoan);
-    if (!user) {
-      return res
-        .status(404)
-        .json({ success: false, message: "Không tìm thấy người dùng!" });
-    }
-
-    user.ho_ten = ho_ten.trim();
+    if (!user) return res.status(404).json({ success: false });
+    user.ho_ten = ho_ten;
     await user.save();
-
-    return res.status(200).json({
-      success: true,
-      message: "Cập nhật hồ sơ thành công!",
-      data: { id: user.id, ho_ten: user.ho_ten, vai_tro: user.vai_tro },
-    });
-  } catch (error) {
-    return res
-      .status(500)
-      .json({ success: false, message: "Lỗi máy chủ cập nhật hồ sơ" });
-  }
+    return res.status(200).json({ success: true, message: "Cập nhật thành công" });
+  } catch (error) { return res.status(500).json({ success: false, message: "Lỗi Server" }); }
 };

@@ -7,10 +7,10 @@ const adminController = require("../controllers/adminController");
 const authController = require("../controllers/authController");
 const phienController = require("../controllers/phienController");
 
-// Cổng Định danh (Khách & Người dùng thật)
-router.post("/auth/guest", authController.loginGuest);
-router.post("/auth/register", authController.registerUser);
-router.post("/auth/login", authController.loginUser);
+// Cổng Định danh (Đã sửa tên hàm cho khớp với authController.js)
+router.post("/auth/guest", authController.guest);
+router.post("/auth/register", authController.register);
+router.post("/auth/login", authController.login);
 router.put("/auth/doi-mat-khau", authController.doiMatKhau);
 router.put("/auth/cap-nhat-thong-tin", authController.capNhatThongTin);
 
