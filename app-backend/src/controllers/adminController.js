@@ -2,22 +2,27 @@ const db = require("../config/db");
 const xl = require("excel4node");
 
 // 1. ĐĂNG NHẬP ADMIN
+
+
+// Các hàm khác giữ nguyên, chỉ sửa hàm loginAdmin
 exports.loginAdmin = async (req, res) => {
   try {
-    const { ten_dang_nhap, mat_khau } = req.body;
-    const [users] = await db.sequelize.query(
-      `SELECT id, ten_dang_nhap, ho_ten, vai_tro FROM tai_khoan WHERE ten_dang_nhap = :ten_dang_nhap AND mat_khau = :mat_khau AND vai_tro = 'quan_tri' LIMIT 1`,
-      { replacements: { ten_dang_nhap, mat_khau } },
-    );
-    if (users.length === 0)
-      return res
-        .status(401)
-        .json({ success: false, message: "Sai tài khoản Admin!" });
-    return res.status(200).json({ success: true, data: users[0] });
+    const { email, mat_khau } = req.body;
+    // Admin cũng đăng nhập bằng email
+    const admin = await db.TaiKhoan.findOne({
+      where: { email: email, mat_khau: mat_khau, vai_tro: "quan_tri" },
+    });
+
+    if (!admin) {
+      return res.status(400).json({ success: false, message: "Tài khoản không tồn tại hoặc không có quyền" });
+    }
+
+    return res.status(200).json({ success: true, data: admin });
   } catch (error) {
-    return res.status(500).json({ success: false });
+    return res.status(500).json({ success: false, message: "Lỗi Server" });
   }
 };
+// GIỮ NGUYÊN CÁC HÀM XUẤT BÁO CÁO, THỐNG KÊ Ở DƯỚI...
 
 // 2. THỐNG KÊ BIỂU ĐỒ THỜI GIAN ĐỘNG
 exports.thongKeThoiGian = async (req, res) => {
