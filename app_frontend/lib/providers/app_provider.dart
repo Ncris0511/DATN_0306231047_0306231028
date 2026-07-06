@@ -56,11 +56,12 @@ class AppProvider with ChangeNotifier {
     }
 
     final adminName = prefs.getString('admin_ho_ten');
-    if (adminName != null)
+    if (adminName != null) {
       adminUser = {
         'ho_ten': adminName,
         'vai_tro': prefs.getString('admin_vai_tro'),
       };
+    }
 
     final userName = prefs.getString('user_ho_ten');
     if (userName != null) {
@@ -160,11 +161,17 @@ class AppProvider with ChangeNotifier {
     await prefs.remove('user_id');
     await prefs.remove('user_ho_ten');
     await prefs.remove('user_email');
+
+    // Đổi thẻ từ mới cho Khách ẩn danh
     deviceIdMacDinh = 'guest_${DateTime.now().millisecondsSinceEpoch}';
     await prefs.setString('device_id', deviceIdMacDinh!);
+
+    // [ĐÃ FIX]: Dọn sạch rác bộ nhớ của User để không bị trôi dữ liệu
     danhSachChuDe.clear();
+    danhSachChuDeGoc.clear();
     chuDeHienTai = null;
     cuocHoiThoaiHienTai.clear();
+
     await khoiChayPhienKhach();
   }
 
@@ -181,12 +188,13 @@ class AppProvider with ChangeNotifier {
   }
 
   void _locDanhSachChuDe() {
-    if (tuKhoaTimKiem.isEmpty)
+    if (tuKhoaTimKiem.isEmpty) {
       danhSachChuDe = List.from(danhSachChuDeGoc);
-    else
+    } else {
       danhSachChuDe = danhSachChuDeGoc
           .where((c) => c.tenChuDe.toLowerCase().contains(tuKhoaTimKiem))
           .toList();
+    }
     notifyListeners();
   }
 
@@ -360,6 +368,14 @@ class AppProvider with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('admin_ho_ten');
     await prefs.remove('admin_vai_tro');
+
+    // [ĐÃ FIX]: Dọn sạch rác bộ nhớ của Admin để không bị lộ sang Khách
+    danhSachChuDe.clear();
+    danhSachChuDeGoc.clear();
+    chuDeHienTai = null;
+    cuocHoiThoaiHienTai.clear();
+    chiSoNps = null;
+    danhSachDiemThoiGian.clear();
 
     notifyListeners();
   }
