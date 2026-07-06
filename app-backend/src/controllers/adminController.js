@@ -1,61 +1,120 @@
 const db = require("../config/db");
 const xl = require("excel4node");
+const { QueryTypes } = require("sequelize"); // THÊM THƯ VIỆN ÉP KIỂU DỮ LIỆU SẠCH
 
-// 1. ĐĂNG NHẬP ADMIN
+// HÀM HỖ TRỢ LỌC THỜI GIAN
+const getWhereClause = (loc_theo, prefix = "") => {
+  const col = prefix ? `${prefix}.ngay_tao` : "ngay_tao";
+  if (loc_theo === "hom_nay") return `DATE(${col}) = CURDATE()`;
+  if (loc_theo === "7_ngay")
+    return `${col} >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)`;
+  if (loc_theo === "thang_nay")
+    return `MONTH(${col}) = MONTH(CURDATE()) AND YEAR(${col}) = YEAR(CURDATE())`;
+  if (loc_theo === "nam_nay") return `YEAR(${col}) = YEAR(CURDATE())`;
+  return `1=1`; // tat_ca
+};
 
-
-// Các hàm khác giữ nguyên, chỉ sửa hàm loginAdmin
 exports.loginAdmin = async (req, res) => {
   try {
     const { email, mat_khau } = req.body;
-    // Admin cũng đăng nhập bằng email
     const admin = await db.TaiKhoan.findOne({
       where: { email: email, mat_khau: mat_khau, vai_tro: "quan_tri" },
     });
-
-    if (!admin) {
-      return res.status(400).json({ success: false, message: "Tài khoản không tồn tại hoặc không có quyền" });
-    }
-
+    if (!admin)
+      return res
+        .status(400)
+        .json({ success: false, message: "Tài khoản không tồn tại" });
     return res.status(200).json({ success: true, data: admin });
-  } catch (error) {
-    return res.status(500).json({ success: false, message: "Lỗi Server" });
-  }
-};
-// GIỮ NGUYÊN CÁC HÀM XUẤT BÁO CÁO, THỐNG KÊ Ở DƯỚI...
-
-// 2. THỐNG KÊ BIỂU ĐỒ THỜI GIAN ĐỘNG
-exports.thongKeThoiGian = async (req, res) => {
-  try {
-    const { loc_theo } = req.query;
-    const boLoc = [
-      "hom_nay",
-      "7_ngay",
-      "thang_nay",
-      "nam_nay",
-      "tat_ca",
-    ].includes(loc_theo)
-      ? loc_theo
-      : "7_ngay";
-    let sql =
-      boLoc === "hom_nay"
-        ? `SELECT HOUR(ngay_tao) AS raw_unit, COUNT(*) AS tong_so FROM binh_luan WHERE DATE(ngay_tao) = DATE(NOW()) GROUP BY HOUR(ngay_tao)`
-        : `SELECT DATE_FORMAT(ngay_tao, '%Y-%m-%d') AS raw_unit, COUNT(*) AS tong_so FROM binh_luan GROUP BY DATE_FORMAT(ngay_tao, '%Y-%m-%d')`;
-
-    const [rows] = await db.sequelize.query(sql);
-    const cleanData = rows.map((item) => ({
-      mox: item.raw_unit,
-      tong_so: parseInt(item.tong_so) || 0,
-    }));
-    return res
-      .status(200)
-      .json({ success: true, khung_thoi_gian: boLoc, data: cleanData });
   } catch (error) {
     return res.status(500).json({ success: false });
   }
 };
 
-// 3. LẤY DANH SÁCH BÌNH LUẬN THÔ
+exports.layChiSoNps = async (req, res) => {
+  try {
+    const loc_theo = req.query.loc_theo || "7_ngay";
+    const whereClause = getWhereClause(loc_theo);
+
+    // Dùng QueryTypes.SELECT và COALESCE để ép dữ liệu trả về số sạch 100%
+    const rows = await db.sequelize.query(
+      `
+      SELECT 
+        COUNT(*) AS tong_so,
+        COALESCE(SUM(CASE WHEN nhan_cam_xuc = 'TICH_CUC' THEN 1 ELSE 0 END), 0) AS tich_cuc,
+        COALESCE(SUM(CASE WHEN nhan_cam_xuc = 'TIEU_CUC' THEN 1 ELSE 0 END), 0) AS tieu_cuc,
+        COALESCE(SUM(CASE WHEN nhan_cam_xuc = 'CHUA_PHAN_LOAI' THEN 1 ELSE 0 END), 0) AS trung_lap,
+        COALESCE(SUM(CASE WHEN danh_gia_sao = 5 THEN 1 ELSE 0 END), 0) AS promoters,
+        COALESCE(SUM(CASE WHEN danh_gia_sao IN (1,2) THEN 1 ELSE 0 END), 0) AS detractors
+      FROM binh_luan WHERE ${whereClause}
+    `,
+      { type: QueryTypes.SELECT },
+    );
+
+    const data = rows[0] || {};
+    const tongSo = Number(data.tong_so) || 0;
+    const promoters = Number(data.promoters) || 0;
+    const detractors = Number(data.detractors) || 0;
+    const diemNps =
+      tongSo > 0 ? Math.round(((promoters - detractors) / tongSo) * 100) : 0;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        tong_so: tongSo,
+        tich_cuc: Number(data.tich_cuc) || 0,
+        tieu_cuc: Number(data.tieu_cuc) || 0,
+        trung_lap: Number(data.trung_lap) || 0,
+        diem_nps: diemNps,
+      },
+    });
+  } catch (error) {
+    console.error("Lỗi layChiSoNps:", error);
+    return res.status(500).json({ success: false });
+  }
+};
+
+exports.thongKeThoiGian = async (req, res) => {
+  try {
+    const loc_theo = req.query.loc_theo || "7_ngay";
+    const whereClause = getWhereClause(loc_theo);
+
+    // ========================================================
+    // ĐỘNG THÁI GOM NHÓM THỜI GIAN THEO ĐÚNG Ý ĐẠI TƯỚNG
+    // ========================================================
+    let groupBy = `DATE_FORMAT(ngay_tao, '%d/%m')`; // Mặc định
+
+    if (loc_theo === "hom_nay") {
+      groupBy = `DATE_FORMAT(ngay_tao, '%H:00')`; // Gom theo Giờ
+    } else if (loc_theo === "7_ngay") {
+      groupBy = `DATE_FORMAT(ngay_tao, '%d/%m')`; // Gom theo Ngày
+    } else if (loc_theo === "thang_nay") {
+      groupBy = `CONCAT('Tuần ', WEEK(ngay_tao, 1))`; // Gom theo Tuần
+    } else if (loc_theo === "nam_nay") {
+      groupBy = `DATE_FORMAT(ngay_tao, 'Thg %m')`; // Gom theo Tháng
+    } else if (loc_theo === "tat_ca") {
+      groupBy = `DATE_FORMAT(ngay_tao, 'Năm %Y')`; // Gom theo Năm
+    }
+
+    const rows = await db.sequelize.query(
+      `
+      SELECT ${groupBy} AS thoi_gian,
+        COALESCE(SUM(CASE WHEN nhan_cam_xuc = 'TICH_CUC' THEN 1 ELSE 0 END), 0) as tich_cuc,
+        COALESCE(SUM(CASE WHEN nhan_cam_xuc = 'TIEU_CUC' THEN 1 ELSE 0 END), 0) as tieu_cuc,
+        COALESCE(SUM(CASE WHEN nhan_cam_xuc = 'CHUA_PHAN_LOAI' THEN 1 ELSE 0 END), 0) as trung_lap
+      FROM binh_luan WHERE ${whereClause} 
+      GROUP BY ${groupBy} 
+      ORDER BY MIN(ngay_tao) ASC LIMIT 30
+    `,
+      { type: QueryTypes.SELECT },
+    );
+
+    return res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    console.error("Lỗi thongKeThoiGian:", error);
+    return res.status(500).json({ success: false, data: [] });
+  }
+};
+
 exports.layDanhSachBinhLuan = async (req, res) => {
   try {
     const [rows] = await db.sequelize.query(
@@ -67,7 +126,26 @@ exports.layDanhSachBinhLuan = async (req, res) => {
   }
 };
 
-// 4. KẾT XUẤT BÁO CÁO GIÁM ĐỊNH MẸ-CON (Đã ghim Độ tin cậy tổng thể lên đỉnh)
+exports.thongKeTheoSanPham = async (req, res) => {
+  try {
+    const loc_theo = req.query.loc_theo || "7_ngay";
+    const whereClause = getWhereClause(loc_theo, "b");
+
+    const rows = await db.sequelize.query(
+      `
+      SELECT c.id AS id_chu_de, c.id_tai_khoan, c.ten_chu_de, c.phan_quyet_ai, c.tom_tat_ai, COUNT(b.id) AS so_luong_binh_luan
+      FROM chu_de_phan_tich c LEFT JOIN binh_luan b ON c.id = b.id_chu_de AND ${whereClause}
+      GROUP BY c.id, c.id_tai_khoan, c.ten_chu_de, c.phan_quyet_ai, c.tom_tat_ai ORDER BY so_luong_binh_luan DESC;
+    `,
+      { type: QueryTypes.SELECT },
+    );
+
+    return res.status(200).json({ success: true, data: rows });
+  } catch (error) {
+    return res.status(500).json({ success: false });
+  }
+};
+
 exports.xuatBaoCao = async (req, res) => {
   try {
     const [topics] = await db.sequelize.query(
@@ -76,7 +154,6 @@ exports.xuatBaoCao = async (req, res) => {
     const [comments] = await db.sequelize.query(
       `SELECT * FROM binh_luan ORDER BY ngay_tao ASC`,
     );
-
     const wb = new xl.Workbook();
     const ws = wb.addWorksheet("Phán quyết Mua sắm AI");
 
@@ -90,7 +167,6 @@ exports.xuatBaoCao = async (req, res) => {
       },
       alignment: { horizontal: "center", vertical: "center" },
     });
-
     const spApproved = wb.createStyle({
       font: { color: "#FFFFFF", bold: true, size: 11 },
       fill: {
@@ -121,7 +197,6 @@ exports.xuatBaoCao = async (req, res) => {
       },
       alignment: { vertical: "center" },
     });
-
     const spAdviceStyle = wb.createStyle({
       font: { italic: true, color: "#1B365D", bold: true, size: 11 },
       fill: {
@@ -132,7 +207,6 @@ exports.xuatBaoCao = async (req, res) => {
       },
       alignment: { vertical: "center" },
     });
-
     const tblHeader = wb.createStyle({
       font: { color: "#222222", bold: true, size: 10 },
       fill: {
@@ -144,7 +218,6 @@ exports.xuatBaoCao = async (req, res) => {
       border: { bottom: { style: "medium", color: "#78909C" } },
       alignment: { horizontal: "center", vertical: "center" },
     });
-
     const thinEdge = { style: "thin", color: "#E0E0E0" };
     const borderCfg = {
       left: thinEdge,
@@ -152,7 +225,6 @@ exports.xuatBaoCao = async (req, res) => {
       top: thinEdge,
       bottom: thinEdge,
     };
-
     const styleNormal = wb.createStyle({
       font: { size: 11 },
       border: borderCfg,
@@ -163,7 +235,6 @@ exports.xuatBaoCao = async (req, res) => {
       border: borderCfg,
       alignment: { horizontal: "center", vertical: "center" },
     });
-
     const badgeKhen = wb.createStyle({
       font: { color: "#1B5E20", bold: true },
       fill: {
@@ -203,7 +274,6 @@ exports.xuatBaoCao = async (req, res) => {
         "BÁO CÁO THẨM ĐỊNH CẢM XÚC & PHÁN QUYẾT MUA SẮM SẢN PHẨM (SENTIFLOW AI)",
       )
       .style(titleStyle);
-
     let currRow = 4;
     const tuDienHaiLong = {
       5: "Rất hài lòng",
@@ -215,8 +285,6 @@ exports.xuatBaoCao = async (req, res) => {
 
     topics.forEach((topic) => {
       const spComments = comments.filter((c) => c.id_chu_de === topic.id);
-
-      // TÍNH TOÁN ĐỘ TIN CẬY TRUNG BÌNH CỦA SẢN PHẨM
       let avgTinCay = "0.0";
       if (spComments.length > 0) {
         const tongTC = spComments.reduce(
@@ -236,7 +304,6 @@ exports.xuatBaoCao = async (req, res) => {
         textVerdict = "⚠ CÂN NHẮC / CẢNH BÁO (CAUTION)";
       }
 
-      // VẼ BANNER GHIM ĐỘ TIN CẬY Ở TRỂN
       ws.row(currRow).setHeight(28);
       ws.cell(currRow, 1, currRow, 7, true)
         .string(
@@ -321,55 +388,10 @@ exports.xuatBaoCao = async (req, res) => {
     ws.column(5).setWidth(14);
     ws.column(6).setWidth(45);
     ws.column(7).setWidth(16);
-
     wb.write("BaoCao_ChotHa_SentiFlow.xlsx", res);
   } catch (error) {
     return res
       .status(500)
       .json({ success: false, message: "Lỗi kết xuất Excel" });
-  }
-};
-
-// 5. THỐNG KÊ CHUYÊN SÂU THEO SẢN PHẨM CHO DASHBOARD
-exports.thongKeTheoSanPham = async (req, res) => {
-  try {
-    const sql = `
-      SELECT c.id AS id_chu_de, c.ten_chu_de, c.phan_quyet_ai, c.tom_tat_ai,
-        COUNT(b.id) AS tong_binh_luan, ROUND(AVG(b.danh_gia_sao), 1) AS sao_trung_binh,
-        SUM(CASE WHEN b.nhan_cam_xuc = 'TICH_CUC' THEN 1 ELSE 0 END) AS tich_cuc,
-        SUM(CASE WHEN b.nhan_cam_xuc = 'TIEU_CUC' THEN 1 ELSE 0 END) AS tieu_cuc,
-        SUM(CASE WHEN b.nhan_cam_xuc = 'CHUA_PHAN_LOAI' THEN 1 ELSE 0 END) AS trung_lap
-      FROM chu_de_phan_tich c LEFT JOIN binh_luan b ON c.id = b.id_chu_de
-      GROUP BY c.id, c.ten_chu_de, c.phan_quyet_ai, c.tom_tat_ai ORDER BY tong_binh_luan DESC;
-    `;
-    const [rows] = await db.sequelize.query(sql);
-
-    const dataSanPham = rows.map((sp) => {
-      const tong = parseInt(sp.tong_binh_luan) || 0;
-      const khen = parseInt(sp.tich_cuc) || 0;
-      return {
-        id_chu_de: sp.id_chu_de,
-        ten_san_pham: sp.ten_chu_de,
-        phan_quyet_chot_ha: sp.phan_quyet_ai,
-        tom_tat_ai: sp.tom_tat_ai || "Chưa có nhận định",
-        tong_binh_luan: tong,
-        diem_sao_tb: parseFloat(sp.sao_trung_binh) || 0,
-        chi_tiet_cam_xuc: {
-          tich_cuc: khen,
-          tieu_cuc: parseInt(sp.tieu_cuc) || 0,
-          trung_lap: parseInt(sp.trung_lap) || 0,
-        },
-        ty_le_hai_long: tong > 0 ? `${Math.round((khen / tong) * 100)}%` : "0%",
-      };
-    });
-    return res
-      .status(200)
-      .json({
-        success: true,
-        tong_so_san_pham: dataSanPham.length,
-        data: dataSanPham,
-      });
-  } catch (error) {
-    return res.status(500).json({ success: false });
   }
 };

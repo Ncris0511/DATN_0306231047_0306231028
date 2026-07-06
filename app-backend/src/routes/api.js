@@ -28,6 +28,7 @@ router.get("/binh-luan/thong-ke", thongKeController.layDashboard);
 // Cổng Quản trị viên
 router.post("/admin/login", adminController.loginAdmin);
 router.get("/admin/thong-ke-thoi-gian", adminController.thongKeThoiGian);
+router.get("/admin/chi-so-nps", adminController.layChiSoNps);
 router.get("/admin/binh-luan-danh-sach", adminController.layDanhSachBinhLuan);
 router.get("/admin/xuat-bao-cao", adminController.xuatBaoCao);
 router.get("/admin/thong-ke-san-pham", adminController.thongKeTheoSanPham);
