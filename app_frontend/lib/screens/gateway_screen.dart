@@ -42,10 +42,14 @@ class GatewayScreen extends StatelessWidget {
                     ),
                   ],
                 ),
-                child: Icon(
-                  Icons.psychology_alt_rounded,
-                  size: 90,
-                  color: AppConfig.primary(isDark),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(20), // Giữ bo góc cho đẹp
+                  child: Image.asset(
+                    'assets/images/logo.png', // Gọi thẳng bức ảnh logo màu xanh ra
+                    width: 90,
+                    height: 90,
+                    fit: BoxFit.contain, // Giữ nguyên tỷ lệ ảnh để không bị méo
+                  ),
                 ),
               ),
               const SizedBox(height: 32),
