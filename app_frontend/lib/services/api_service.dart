@@ -12,7 +12,7 @@ class ApiService {
       BaseOptions(
         baseUrl: AppConfig.baseUrl,
         connectTimeout: const Duration(seconds: 60),
-        receiveTimeout: const Duration(seconds: 60),
+        receiveTimeout: const Duration(seconds: 120),
         headers: {'Content-Type': 'application/json'},
       ),
     );
@@ -27,7 +27,6 @@ class ApiService {
     return null;
   }
 
-  // [BỔ SUNG deviceId]: Để Backend biết mà merge Data
   Future<Map<String, dynamic>?> loginClient(
     String email,
     String password,
@@ -36,11 +35,7 @@ class ApiService {
     try {
       final res = await _dio.post(
         '/auth/login',
-        data: {
-          'ten_dang_nhap': email,
-          'mat_khau': password,
-          'device_id': deviceId,
-        },
+        data: {'email': email, 'mat_khau': password, 'device_id': deviceId},
       );
       if (res.statusCode == 200 && res.data['success'] == true)
         return res.data['data'];
@@ -166,9 +161,8 @@ class ApiService {
       if (res.statusCode == 200) return KetQuaAI.fromJson(res.data['data']);
     } catch (e) {
       String serverMsg = e.toString();
-      if (e is DioException) {
+      if (e is DioException)
         serverMsg = e.response?.data['message'] ?? e.message;
-      }
       throw Exception(serverMsg);
     }
   }
@@ -181,11 +175,11 @@ class ApiService {
     return null;
   }
 
-  Future<Map<String, dynamic>?> loginAdmin(String usr, String pwd) async {
+  Future<Map<String, dynamic>?> loginAdmin(String email, String pwd) async {
     try {
       final res = await _dio.post(
         '/admin/login',
-        data: {'ten_dang_nhap': usr, 'mat_khau': pwd},
+        data: {'email': email, 'mat_khau': pwd},
       );
       if (res.statusCode == 200 && res.data['success'] == true)
         return res.data['data'];
@@ -193,11 +187,23 @@ class ApiService {
     return null;
   }
 
-  Future<ChiSoNps?> layChiSoNps() async {
+  // =========================================================================
+  // FIX LỖI: BỌC THÉP 3 HÀM DỮ LIỆU ĐỂ LUÔN ĐỌC ĐÚNG JSON VÀ MANG THEO BIẾN
+  // =========================================================================
+  Future<ChiSoNps?> layChiSoNps({String locTheo = '7_ngay'}) async {
     try {
-      final res = await _dio.get('/admin/chi-so-nps');
-      if (res.statusCode == 200) return ChiSoNps.fromJson(res.data);
-    } catch (_) {}
+      final res = await _dio.get(
+        '/admin/chi-so-nps',
+        queryParameters: {'loc_theo': locTheo},
+      );
+      if (res.statusCode == 200 && res.data['success'] == true) {
+        // Fix: Bóc tách đúng tầng 'data'
+        final dynamic data = res.data['data'] ?? res.data;
+        return ChiSoNps.fromJson(data);
+      }
+    } catch (e) {
+      print("Lỗi layChiSoNps: $e");
+    }
     return null;
   }
 
@@ -209,10 +215,53 @@ class ApiService {
         '/admin/thong-ke-thoi-gian',
         queryParameters: {'loc_theo': locTheo},
       );
-      if (res.statusCode == 200)
+      if (res.statusCode == 200 && res.data['success'] == true) {
         return (res.data['data'] as List)
             .map((e) => DiemThoiGian.fromJson(e))
             .toList();
+      }
+    } catch (_) {}
+    return [];
+  }
+
+  Future<List<ChuDeModel>> layThongKeSanPhamAdmin({
+    String locTheo = '7_ngay',
+  }) async {
+    try {
+      final res = await _dio.get(
+        '/admin/thong-ke-san-pham',
+        queryParameters: {'loc_theo': locTheo},
+      );
+      if (res.statusCode == 200 && res.data['success'] == true) {
+        return (res.data['data'] as List)
+            .map(
+              (e) => ChuDeModel(
+                id:
+                    int.tryParse(
+                      e['id_chu_de']?.toString() ?? e['id']?.toString() ?? '0',
+                    ) ??
+                    0,
+                idTaiKhoan: 1,
+                tenChuDe:
+                    e['ten_chu_de']?.toString() ??
+                    e['ten_san_pham']?.toString() ??
+                    'Sản phẩm',
+                phanQuyetAi:
+                    e['phan_quyet_ai']?.toString() ??
+                    e['phan_quyet_chot_ha']?.toString() ??
+                    'CHUA_HOI_CHAN',
+                tomTatAi: e['tom_tat_ai']?.toString(),
+                soLuongBinhLuan:
+                    int.tryParse(
+                      e['so_luong_binh_luan']?.toString() ??
+                          e['tong_binh_luan']?.toString() ??
+                          '0',
+                    ) ??
+                    0,
+              ),
+            )
+            .toList();
+      }
     } catch (_) {}
     return [];
   }

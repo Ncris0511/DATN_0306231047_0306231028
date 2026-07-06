@@ -18,23 +18,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final _newPwdController = TextEditingController();
 
   @override
+  void dispose() {
+    _nameController.dispose();
+    _oldPwdController.dispose();
+    _newPwdController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final prov = context.watch<AppProvider>();
     final isDark = prov.isDarkMode;
     final hasUser = prov.isLoggedUser;
 
-    // [ĐÃ BỌC THÉP CHỐNG NULL]: Tự gán chuỗi rỗng nếu Backend trả thiếu dữ liệu
+    // [ĐÃ NÂNG CẤP]: Xóa bỏ hoàn toàn biến ten_dang_nhap, chỉ dùng đúng email
     String hoTen = 'Người dùng';
     String email = 'Chưa cập nhật Email';
     String avatarChar = 'G';
 
     if (hasUser) {
       hoTen = prov.currentUser?['ho_ten']?.toString() ?? 'Người dùng';
-      // Nếu cột email trống, thử lấy ten_dang_nhap, nếu vẫn trống thì ghi Chưa cập nhật
-      email =
-          prov.currentUser?['email']?.toString() ??
-          prov.currentUser?['ten_dang_nhap']?.toString() ??
-          'Chưa cập nhật Email';
+      // Giờ chỉ đọc đúng trường 'email' từ Provider
+      email = prov.currentUser?['email']?.toString() ?? 'Chưa cập nhật Email';
       avatarChar = hoTen.isNotEmpty ? hoTen[0].toUpperCase() : 'U';
 
       if (_nameController.text.isEmpty) {
@@ -63,6 +68,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // KHU VỰC AVATAR & THÔNG TIN CƠ BẢN
             Center(
               child: Column(
                 children: [
@@ -117,6 +123,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 40),
 
+            // NẾU LÀ KHÁCH ẨN DANH THÌ HIỆN NÚT ĐĂNG NHẬP / ĐĂNG KÝ
             if (!hasUser) ...[
               Container(
                 padding: const EdgeInsets.all(20),
@@ -210,6 +217,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
             ],
 
+            // NẾU ĐÃ CÓ TÀI KHOẢN THÌ HIỆN FORM SỬA TÊN & ĐỔI MẬT KHẨU
             if (hasUser) ...[
               Text(
                 'HỒ SƠ CÁ NHÂN',
@@ -260,15 +268,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           final success = await prov.capNhatHoTenUser(
                             _nameController.text.trim(),
                           );
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                success
-                                    ? 'Cập nhật tên thành công!'
-                                    : 'Thất bại!',
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  success
+                                      ? 'Cập nhật tên thành công!'
+                                      : 'Thất bại!',
+                                ),
                               ),
-                            ),
-                          );
+                            );
+                          }
                         },
                         child: const Text(
                           'LƯU HỌ TÊN',
@@ -280,6 +290,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
               ),
               const SizedBox(height: 32),
+
               Text(
                 'BẢO MẬT TÀI KHOẢN',
                 style: TextStyle(
@@ -354,15 +365,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             _oldPwdController.clear();
                             _newPwdController.clear();
                           }
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                success
-                                    ? 'Đổi mật khẩu thành công!'
-                                    : 'Sai mật khẩu cũ!',
+                          if (context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  success
+                                      ? 'Đổi mật khẩu thành công!'
+                                      : 'Sai mật khẩu cũ!',
+                                ),
                               ),
-                            ),
-                          );
+                            );
+                          }
                         },
                         child: const Text(
                           'ĐỔI MẬT KHẨU',
@@ -376,6 +389,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ],
 
             const SizedBox(height: 48),
+            // NÚT ĐĂNG XUẤT VÀ VỀ MÀN HÌNH CHÍNH
             SizedBox(
               width: double.infinity,
               height: 55,
@@ -394,7 +408,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 ),
                 onPressed: () async {
                   if (hasUser) await prov.dangXuatClient();
-                  if (mounted)
+                  if (context.mounted)
                     Navigator.pushAndRemoveUntil(
                       context,
                       MaterialPageRoute(builder: (_) => const GatewayScreen()),

@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:device_info_plus/device_info_plus.dart';
 import '../models/sentiment_result.dart';
 import '../models/nps_overview.dart';
 import '../models/time_point.dart';
@@ -91,53 +90,36 @@ class AppProvider with ChangeNotifier {
     notifyListeners();
   }
 
-  // ============================================
-  // [ĐÃ NÂNG CẤP]: ĐĂNG NHẬP GIỮ NGUYÊN MÀN HÌNH CHAT
-  // ============================================
   Future<bool> dangNhapClient(String email, String pwd) async {
     isLoading = true;
     errorMessage = null;
     notifyListeners();
-
-    // Gửi deviceIdMacDinh lên để Node.js gom dữ liệu
     final user = await _apiService.loginClient(email, pwd, deviceIdMacDinh);
 
     if (user != null) {
       currentUser = user;
       guestUser = null;
-
       final prefs = await SharedPreferences.getInstance();
       await prefs.setInt('user_id', user['id']);
       await prefs.setString('user_ho_ten', user['ho_ten']);
       await prefs.setString('user_email', email);
-
-      // Làm mới DeviceID để khách sau không bị trùng
       deviceIdMacDinh = 'guest_${DateTime.now().millisecondsSinceEpoch}';
       await prefs.setString('device_id', deviceIdMacDinh!);
-
-      // Lấy danh sách Topic về (lúc này các Topic cũ đã thuộc sở hữu của User mới)
       await taiDanhSachChuDe();
-
-      // TỰ ĐỘNG KHÔI PHỤC MÀN HÌNH CHAT MÀ KHÔNG CẦN CLEAR()
       if (chuDeHienTai != null) {
         try {
-          // Tìm Topic đang mở xem nó có nằm trong danh sách mới không
-          final matched = danhSachChuDeGoc.firstWhere(
+          chuDeHienTai = danhSachChuDeGoc.firstWhere(
             (c) => c.id == chuDeHienTai!.id,
           );
-          chuDeHienTai = matched;
         } catch (_) {
-          // Nếu không thấy thì mới dọn dẹp
           chuDeHienTai = null;
           cuocHoiThoaiHienTai.clear();
         }
       }
-
       isLoading = false;
       notifyListeners();
       return true;
     }
-
     isLoading = false;
     errorMessage = 'Sai email hoặc mật khẩu!';
     notifyListeners();
@@ -255,7 +237,6 @@ class AppProvider with ChangeNotifier {
     final textGuiDi = noiDung.trim().isEmpty
         ? "Hãy phân tích tài liệu đính kèm này."
         : noiDung.trim();
-
     final tinNhanTam = KetQuaAI(
       id: DateTime.now().millisecondsSinceEpoch,
       noiDung: textGuiDi,
@@ -287,18 +268,7 @@ class AppProvider with ChangeNotifier {
       cuocHoiThoaiHienTai.removeLast();
 
       if (res != null) {
-        final resHoanChinh = KetQuaAI(
-          id: res.id,
-          noiDung: textGuiDi,
-          nhanCamXuc: res.nhanCamXuc,
-          doTinCay: res.doTinCay,
-          lyDoCuaAI: res.lyDoCuaAI,
-          tieuChiTinCay: res.tieuChiTinCay,
-          danhGiaSao: res.danhGiaSao,
-          lyDoDanhGiaSao: res.lyDoDanhGiaSao,
-          danhSachKhiaCanh: res.danhSachKhiaCanh,
-        );
-        cuocHoiThoaiHienTai.add(resHoanChinh);
+        cuocHoiThoaiHienTai.add(res);
         chuDeHienTai = ChuDeModel(
           id: chuDeHienTai!.id,
           idTaiKhoan: chuDeHienTai!.idTaiKhoan,
@@ -322,14 +292,14 @@ class AppProvider with ChangeNotifier {
       }
     } catch (e) {
       cuocHoiThoaiHienTai.removeLast();
-      String loiThucTe = e.toString().replaceAll('Exception: ', '');
       cuocHoiThoaiHienTai.add(
         KetQuaAI(
           id: -1,
           noiDung: textGuiDi,
           nhanCamXuc: 'TIEU_CUC',
           doTinCay: 0.0,
-          lyDoCuaAI: '⚠ LỖI TỪ SERVER: $loiThucTe',
+          lyDoCuaAI:
+              '⚠ LỖI TỪ SERVER: ${e.toString().replaceAll('Exception: ', '')}',
           tieuChiTinCay: '',
         ),
       );
@@ -387,18 +357,30 @@ class AppProvider with ChangeNotifier {
 
   Future<void> dangXuatAdmin() async {
     adminUser = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('admin_ho_ten');
+    await prefs.remove('admin_vai_tro');
+
     notifyListeners();
   }
 
   Future<void> taiDuLieuDashboard() async {
     isLoading = true;
     notifyListeners();
-    final results = await Future.wait([
-      _apiService.layChiSoNps(),
-      _apiService.layThongKeThoiGian(locTheo: boLocThoiGianHienTai),
-    ]);
-    chiSoNps = results[0] as ChiSoNps?;
-    danhSachDiemThoiGian = (results[1] as List<DiemThoiGian>?) ?? [];
+    try {
+      final results = await Future.wait([
+        _apiService.layChiSoNps(locTheo: boLocThoiGianHienTai),
+        _apiService.layThongKeThoiGian(locTheo: boLocThoiGianHienTai),
+        _apiService.layThongKeSanPhamAdmin(locTheo: boLocThoiGianHienTai),
+      ]);
+
+      chiSoNps = results[0] as ChiSoNps?;
+      danhSachDiemThoiGian = (results[1] as List<DiemThoiGian>?) ?? [];
+      danhSachChuDeGoc = (results[2] as List<ChuDeModel>?) ?? [];
+      danhSachChuDe = List.from(danhSachChuDeGoc);
+    } catch (e) {
+      print("Lỗi tải Dashboard: $e");
+    }
     isLoading = false;
     notifyListeners();
   }
