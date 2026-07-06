@@ -33,6 +33,11 @@ exports.taoChuDeMoi = async (req, res) => {
 exports.layDanhSachSidebar = async (req, res) => {
   try {
     const { id_tai_khoan } = req.query;
+    if (!id_tai_khoan || id_tai_khoan === "null") {
+      return res
+        .status(200)
+        .json({ success: true, tong_so_topic: 0, data: [] });
+    }
     const danhSach = await db.ChuDePhanTich.findAll({
       where: { id_tai_khoan },
       order: [["ngay_tao", "DESC"]],
@@ -46,13 +51,11 @@ exports.layDanhSachSidebar = async (req, res) => {
         return { ...item.dataValues, so_luong_binh_luan: soLuong };
       }),
     );
-    return res
-      .status(200)
-      .json({
-        success: true,
-        tong_so_topic: dataWithCount.length,
-        data: dataWithCount,
-      });
+    return res.status(200).json({
+      success: true,
+      tong_so_topic: dataWithCount.length,
+      data: dataWithCount,
+    });
   } catch (error) {
     return res
       .status(500)
@@ -74,13 +77,11 @@ exports.layChiTietPhienChat = async (req, res) => {
       include: [{ model: db.ChiTietKhiaCanh, as: "danhSachKhiaCanh" }],
       order: [["ngay_tao", "ASC"]],
     });
-    return res
-      .status(200)
-      .json({
-        success: true,
-        thong_tin_topic: chuDe,
-        lich_su_hoi_thoai: lichSu,
-      });
+    return res.status(200).json({
+      success: true,
+      thong_tin_topic: chuDe,
+      lich_su_hoi_thoai: lichSu,
+    });
   } catch (error) {
     return res
       .status(500)
@@ -127,12 +128,10 @@ exports.hoiChanAI = async (req, res) => {
     });
 
     if (dsBinhLuan.length === 0)
-      return res
-        .status(400)
-        .json({
-          success: false,
-          message: "Chưa có bình luận nào để hội chẩn!",
-        });
+      return res.status(400).json({
+        success: false,
+        message: "Chưa có bình luận nào để hội chẩn!",
+      });
 
     const gopText = dsBinhLuan
       .map(
@@ -241,11 +240,9 @@ exports.hoiChanAI = async (req, res) => {
     return res.status(200).json({ success: true, ket_qua_chot_ha: topic });
   } catch (error) {
     console.error("❌ Lỗi Hệ thống Hội Chẩn:", error);
-    return res
-      .status(500)
-      .json({
-        success: false,
-        message: `Lỗi máy chủ hội chẩn AI: ${error.message}`,
-      });
+    return res.status(500).json({
+      success: false,
+      message: `Lỗi máy chủ hội chẩn AI: ${error.message}`,
+    });
   }
 };
